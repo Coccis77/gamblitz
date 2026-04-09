@@ -5,9 +5,11 @@ import { drawIntents } from './rendering/intent-renderer.js';
 import {
   drawHUD, drawLevelComplete, drawGameOver,
   getEndTurnButton, getNextLevelButton, getRestartButton, isInsideButton,
-  ButtonRect,
+  ButtonRect, RunStats,
 } from './rendering/ui-renderer.js';
-import { drawShop, getShopCards, getContinueButton, getCancelButton, shopGridHitTest, PlacementState } from './rendering/shop-renderer.js';
+import { drawShop, getShopCards, getArtifactRects, getContinueButton, getCancelButton, shopGridHitTest, PlacementState, ModifierApplyState, getSelectedPieceId, setSelectedPieceId } from './rendering/shop-renderer.js';
+import { addArtifact, canAddArtifact, removeArtifact, hasArtifactEffect, getArtifactEffectValue } from './core/artifact.js';
+import { ModifierDef, MAX_MODIFIER_SLOTS } from './core/modifier.js';
 import { positionEquals } from './core/board.js';
 import { Piece, createPiece, PieceType } from './core/piece.js';
 import { Move } from './core/movement.js';
@@ -20,7 +22,11 @@ import {
   executeMove, computeEnPassant,
 } from './input/click-handler.js';
 import { computeAllIntents, recalculateIntents } from './ai/intent.js';
-import { handleKingHit, damageKing } from './systems/king-hp.js';
+import { handleKingHit } from './systems/king-hp.js';
+import { RunState, createRunState, advanceRun, hasMutation } from './systems/run.js';
+import { GameEvent, EventEffect, rollEvent } from './systems/events.js';
+import { drawEventScreen, getEventOptionButtons } from './rendering/event-renderer.js';
+import { PromotionRecord, checkPlayerPawnPromotion, revertPromotions } from './systems/promotion.js';
 import { createRng, RngFn } from './utils/rng.js';
 import {
   LevelState, createLevel, buildGameStateForLevel, checkLevelComplete,
@@ -30,41 +36,97 @@ import {
   Economy, createEconomy, earnGold, spendGold,
   GOLD_PER_CAPTURE, GOLD_LEVEL_COMPLETE, GOLD_BOSS_COMPLETE,
 } from './systems/economy.js';
-import { ShopItem, generateShopItems, MAX_ARMY_SLOTS } from './systems/shop.js';
+import { ShopItem, generateShopItems, generateReplacementItem, MAX_ARMY_SLOTS } from './systems/shop.js';
 import { BOARD_SIZE } from './utils/types.js';
 
-type Screen = 'level' | 'shop';
+type Screen = 'level' | 'event' | 'shop';
 
 let cc: CanvasContext;
 let state: GameState;
 let selection: SelectionState;
 let level: LevelState;
+let run: RunState;
 let rng: RngFn;
 let economy: Economy;
 let screen: Screen = 'level';
 let shopItems: ShopItem[] = [];
 let placement: PlacementState | null = null;
+let modifierApply: ModifierApplyState | null = null;
+let pendingModifier: ModifierDef | null = null;
 let pendingPlacementCost = 0;
+let pendingShopIndex = -1;
+let currentEvent: GameEvent | null = null;
+let promotionRecords: PromotionRecord[] = [];
 
 // ─── Level management ────────────────────────────────────
 
-function startLevel(levelNumber: number, resetAll?: boolean): void {
-  if (resetAll) {
-    rng = createRng(Date.now());
-    economy = createEconomy();
-  }
-  const persisted = !resetAll && level
-    ? { playerKingHP: level.playerKingHP, playerArmy: level.playerArmy, armySlots: level.armySlots }
-    : undefined;
-  level = createLevel(levelNumber, persisted);
-  state = buildGameStateForLevel(level);
+function startNewRun(seed?: number): void {
+  const s = seed ?? Date.now();
+  rng = createRng(s);
+  economy = createEconomy();
+  run = createRunState(s);
+  level = createLevel(run, rng);
+  state = buildGameStateForLevel(level, run, rng);
+  selection = createSelectionState();
+  promotionRecords = [];
+  screen = 'level';
+  applyMutationsToState();
+}
+
+function startNextLevel(): void {
+  // Revert promotions before carrying army over
+  revertPromotions(level.playerArmy, promotionRecords);
+  promotionRecords = [];
+
+  const persisted = {
+    playerKingHP: level.playerKingHP,
+    playerArmy: level.playerArmy,
+    armySlots: level.armySlots,
+    artifactSlots: level.artifactSlots,
+  };
+  advanceRun(run, rng);
+  level = createLevel(run, rng, persisted);
+  state = buildGameStateForLevel(level, run, rng);
   selection = createSelectionState();
   screen = 'level';
+  applyMutationsToState();
+}
+
+function applyMutationsToState(): void {
+  if (hasMutation(run, 'player_fewer_moves') && state.maxMovesPerTurn > 1) {
+    state.maxMovesPerTurn--;
+    state.movesRemaining = state.maxMovesPerTurn;
+  }
+}
+
+function applyEvent(effect: EventEffect): void {
+  switch (effect.kind) {
+    case 'bonus_gold':
+      earnGold(economy, effect.amount);
+      run.totalGoldEarned += effect.amount;
+      break;
+    case 'heal':
+      level.playerKingHP.current = Math.min(level.playerKingHP.max, level.playerKingHP.current + effect.amount);
+      break;
+    case 'extra_move_this_level':
+      level.extraMoves = (level.extraMoves ?? 0) + 1;
+      break;
+    case 'bonus_gold_next_captures':
+      run.bountyCaptures = effect.captures;
+      run.bountyGold = effect.amount;
+      break;
+    case 'nothing':
+      break;
+  }
 }
 
 function enterShop(): void {
-  shopItems = generateShopItems(rng, level.armySlots);
+  const ownedIds = new Set(level.artifactSlots.artifacts.map(a => a.id));
+  const ownedTypes = new Set(level.playerArmy.map(p => p.type));
+  shopItems = generateShopItems(rng, level.armySlots, ownedIds, ownedTypes);
   placement = null;
+  modifierApply = null;
+  pendingModifier = null;
   screen = 'shop';
 }
 
@@ -95,8 +157,32 @@ function getPlacementInfo(army: readonly Piece[], pieceType: PieceType): { empty
   return { empty, replaceable };
 }
 
-function buyItem(item: ShopItem): void {
-  if (placement) return;
+function replaceShopItem(index: number): void {
+  const ownedIds = new Set(level.artifactSlots.artifacts.map(a => a.id));
+  const ownedTypes = new Set(level.playerArmy.map(p => p.type));
+  shopItems[index] = generateReplacementItem(rng, level.armySlots, ownedIds, ownedTypes);
+}
+
+function isItemUsable(item: ShopItem): boolean {
+  if (item.type.kind === 'heal' && level.playerKingHP.current >= level.playerKingHP.max) return false;
+  if (item.type.kind === 'army_slot' && level.armySlots >= MAX_ARMY_SLOTS) return false;
+  if (item.type.kind === 'piece' && level.playerArmy.length >= level.armySlots) return false;
+  if (item.type.kind === 'artifact' && !canAddArtifact(level.artifactSlots)) return false;
+  if (item.type.kind === 'modifier') {
+    const mod = item.type.modifier;
+    const canApplyToAny = level.playerArmy.some(
+      p => p.type === mod.pieceType
+        && p.modifiers.length < MAX_MODIFIER_SLOTS
+        && !p.modifiers.some(m => m.id === mod.id),
+    );
+    if (!canApplyToAny) return false;
+  }
+  return true;
+}
+
+function buyItem(item: ShopItem, index: number): void {
+  if (placement || modifierApply) return;
+  if (!isItemUsable(item)) return;
   if (!spendGold(economy, item.cost)) return;
 
   switch (item.type.kind) {
@@ -104,33 +190,41 @@ function buyItem(item: ShopItem): void {
       const { empty, replaceable } = getPlacementInfo(level.playerArmy, item.type.pieceType);
       const canPlaceEmpty = level.playerArmy.length < level.armySlots && empty.length > 0;
       const validSquares = canPlaceEmpty ? empty : [];
-      if (validSquares.length === 0 && replaceable.length === 0) {
-        earnGold(economy, item.cost);
-        return;
-      }
       placement = { pieceType: item.type.pieceType, validSquares, replaceableSquares: replaceable };
       pendingPlacementCost = item.cost;
+      pendingShopIndex = index;
+      setSelectedPieceId(null);
       break;
     }
     case 'heal': {
-      const hp = level.playerKingHP;
-      if (hp.current < hp.max) {
-        hp.current = Math.min(hp.max, hp.current + item.type.amount);
-      } else {
-        earnGold(economy, item.cost); // refund — already full
-      }
+      level.playerKingHP.current = Math.min(level.playerKingHP.max, level.playerKingHP.current + item.type.amount);
+      replaceShopItem(index);
       break;
     }
     case 'extra_move': {
       level.extraMoves = (level.extraMoves ?? 0) + 1;
+      replaceShopItem(index);
       break;
     }
     case 'army_slot': {
-      if (level.armySlots < MAX_ARMY_SLOTS) {
-        level.armySlots++;
-      } else {
-        earnGold(economy, item.cost); // refund — already max
+      level.armySlots++;
+      replaceShopItem(index);
+      break;
+    }
+    case 'artifact': {
+      addArtifact(level.artifactSlots, item.type.artifact);
+      if (item.type.artifact.effect.kind === 'extra_slot') {
+        level.artifactSlots.maxSlots++;
       }
+      replaceShopItem(index);
+      break;
+    }
+    case 'modifier': {
+      pendingModifier = item.type.modifier;
+      modifierApply = { modifierId: item.type.modifier.id, modifierName: item.type.modifier.name, pieceType: item.type.modifier.pieceType };
+      setSelectedPieceId(null);
+      pendingPlacementCost = item.cost;
+      pendingShopIndex = index;
       break;
     }
   }
@@ -149,19 +243,33 @@ function performMove(move: Move): boolean {
         if (attacker) {
           attacker.position = { ...move.to };
           attacker.hasMoved = true;
+          attacker.hasCapturedThisTurn = true;
         }
 
-        const survived = handleKingHit(target, hp, state.pieces, rng);
-        if (!survived) {
-          if (target.owner === 'player') {
-            level.gameOver = true;
-          } else {
-            level.progress.enemyKingDefeated = true;
+        // Check "king ignores hit" artifact
+        let dodged = false;
+        if (target.owner === 'player') {
+          for (const a of level.artifactSlots.artifacts) {
+            if (a.effect.kind === 'king_extra_hp_on_hit' && rng() < a.effect.chance) {
+              dodged = true;
+              break;
+            }
+          }
+        }
+
+        if (!dodged) {
+          const survived = handleKingHit(target, hp, state.pieces, rng);
+          if (!survived) {
+            if (target.owner === 'player') {
+              level.gameOver = true;
+            } else {
+              level.progress.enemyKingDefeated = true;
+            }
           }
         }
 
         onPieceCaptured(level);
-        earnGold(economy, GOLD_PER_CAPTURE);
+        onCaptureRewards();
         return !level.gameOver;
       }
     }
@@ -171,9 +279,31 @@ function performMove(move: Move): boolean {
   executeMove(move, state.pieces);
   if (hadCapture) {
     onPieceCaptured(level);
-    earnGold(economy, GOLD_PER_CAPTURE);
+    onCaptureRewards();
   }
   return true;
+}
+
+function onCaptureRewards(): void {
+  const bonusGold = getArtifactEffectValue(level.artifactSlots, 'gold_per_capture');
+  let bounty = 0;
+  if (run.bountyCaptures > 0) {
+    bounty = run.bountyGold;
+    run.bountyCaptures--;
+  }
+  const earned = GOLD_PER_CAPTURE + bonusGold + bounty;
+  earnGold(economy, earned);
+  run.totalCaptures++;
+  run.totalGoldEarned += earned;
+
+  // Capture heals
+  for (const a of level.artifactSlots.artifacts) {
+    if (a.effect.kind === 'capture_heals' && level.playerKingHP.current < level.playerKingHP.max) {
+      if (rng() < a.effect.chance) {
+        level.playerKingHP.current++;
+      }
+    }
+  }
 }
 
 // ─── Render ──────────────────────────────────────────────
@@ -181,17 +311,30 @@ function performMove(move: Move): boolean {
 function render(): void {
   cc.ctx.clearRect(0, 0, cc.canvas.width, cc.canvas.height);
 
+  if (screen === 'event' && currentEvent) {
+    drawEventScreen(cc, currentEvent);
+    return;
+  }
+
   if (screen === 'shop') {
-    drawShop(cc, shopItems, economy, level.playerArmy, level.armySlots, level.playerKingHP, placement);
+    drawShop(cc, shopItems, economy, level.playerArmy, level.armySlots, level.playerKingHP, level.artifactSlots, placement, modifierApply);
     return;
   }
 
   drawBoard(cc, selection.selectedPiece?.position ?? null, selection.legalMoves);
-  drawIntents(cc, state.enemyIntents, state.pieces);
+  if (!hasMutation(run, 'fog_of_war')) {
+    drawIntents(cc, state.enemyIntents, state.pieces);
+  }
   drawPieces(cc, state.pieces);
-  drawHUD(cc, state, level, economy);
+  drawHUD(cc, state, level, economy, run.rank, selection.selectedPiece);
 
-  if (level.gameOver) drawGameOver(cc);
+  if (level.gameOver) drawGameOver(cc, {
+    rank: run.rank,
+    levelsCleared: run.totalLevelsCleared,
+    totalCaptures: run.totalCaptures,
+    totalGoldEarned: run.totalGoldEarned,
+    seed: run.seed,
+  });
   else if (level.completed) drawLevelComplete(cc);
 }
 
@@ -277,6 +420,7 @@ function onShopClick(x: number, y: number): void {
 
       if (isEmptySlot) {
         level.playerArmy.push(createPiece(placement.pieceType, 'player', pos));
+        replaceShopItem(pendingShopIndex);
         placement = null;
         pendingPlacementCost = 0;
       } else if (isReplace) {
@@ -285,7 +429,42 @@ function onShopClick(x: number, y: number): void {
         );
         if (idx !== -1) level.playerArmy.splice(idx, 1);
         level.playerArmy.push(createPiece(placement.pieceType, 'player', pos));
+        replaceShopItem(pendingShopIndex);
         placement = null;
+        pendingPlacementCost = 0;
+      }
+    }
+    render();
+    return;
+  }
+
+  // If in modifier apply mode
+  if (modifierApply && pendingModifier) {
+    // Cancel
+    if (isInsideButton(getCancelButton(), x, y)) {
+      earnGold(economy, pendingPlacementCost);
+      modifierApply = null;
+      pendingModifier = null;
+      pendingPlacementCost = 0;
+      render();
+      return;
+    }
+
+    const pos = shopGridHitTest(x, y);
+    if (pos) {
+      const piece = level.playerArmy.find(
+        p => p.lockedPosition.row === pos.row && p.lockedPosition.col === pos.col,
+      );
+      if (
+        piece
+        && piece.type === pendingModifier.pieceType
+        && piece.modifiers.length < MAX_MODIFIER_SLOTS
+        && !piece.modifiers.some(m => m.id === pendingModifier!.id)
+      ) {
+        piece.modifiers.push(pendingModifier);
+        replaceShopItem(pendingShopIndex);
+        modifierApply = null;
+        pendingModifier = null;
         pendingPlacementCost = 0;
       }
     }
@@ -297,7 +476,16 @@ function onShopClick(x: number, y: number): void {
   for (const card of getShopCards()) {
     if (isInsideButton(card, x, y)) {
       const item = shopItems[card.index];
-      if (item) buyItem(item);
+      if (item) buyItem(item, card.index);
+      render();
+      return;
+    }
+  }
+
+  // Check artifact discard
+  for (const rect of getArtifactRects()) {
+    if (isInsideButton(rect, x, y)) {
+      removeArtifact(level.artifactSlots, rect.index);
       render();
       return;
     }
@@ -306,10 +494,25 @@ function onShopClick(x: number, y: number): void {
   // Continue button
   if (isInsideButton(getContinueButton(), x, y)) {
     const extraMoves = level.extraMoves ?? 0;
-    startLevel(level.levelNumber + 1);
+    startNextLevel();
     if (extraMoves) {
       state.maxMovesPerTurn += extraMoves;
       state.movesRemaining = state.maxMovesPerTurn;
+    }
+    render();
+    return;
+  }
+
+  // Click on grid to select/deselect a piece (inspect modifiers)
+  const pos = shopGridHitTest(x, y);
+  if (pos) {
+    const piece = level.playerArmy.find(
+      p => p.lockedPosition.row === pos.row && p.lockedPosition.col === pos.col,
+    );
+    if (piece) {
+      setSelectedPieceId(getSelectedPieceId() === piece.id ? null : piece.id);
+    } else {
+      setSelectedPieceId(null);
     }
     render();
   }
@@ -320,22 +523,48 @@ function onClick(e: MouseEvent): void {
   const x = e.clientX - rect.left;
   const y = e.clientY - rect.top;
 
+  if (screen === 'event' && currentEvent) {
+    for (let i = 0; i < getEventOptionButtons().length; i++) {
+      const btn = getEventOptionButtons()[i]!;
+      if (isInsideButton(btn, x, y)) {
+        const opt = currentEvent.options[i]!;
+        applyEvent(opt.effect);
+        currentEvent = null;
+        if (level.gameOver) { render(); return; }
+        enterShop();
+        render();
+        return;
+      }
+    }
+    return;
+  }
+
   if (screen === 'shop') {
     onShopClick(x, y);
     return;
   }
 
   if (level.gameOver) {
-    if (isInsideButton(getRestartButton(), x, y)) { startLevel(1, true); render(); }
+    if (isInsideButton(getRestartButton(), x, y)) { startNewRun(); render(); }
     return;
   }
 
   if (level.completed) {
     if (isInsideButton(getNextLevelButton(), x, y)) {
       // Award gold for completing the level
-      const bonus = level.template.isBoss ? GOLD_BOSS_COMPLETE : GOLD_LEVEL_COMPLETE;
-      earnGold(economy, bonus);
-      enterShop();
+      const bonus = level.template.levelType === 'boss' ? GOLD_BOSS_COMPLETE : GOLD_LEVEL_COMPLETE;
+      const artifactBonus = getArtifactEffectValue(level.artifactSlots, 'gold_per_level');
+      const totalBonus = bonus + artifactBonus;
+      earnGold(economy, totalBonus);
+      run.totalGoldEarned += totalBonus;
+
+      // Roll for random event
+      currentEvent = rollEvent(rng);
+      if (currentEvent) {
+        screen = 'event';
+      } else {
+        enterShop();
+      }
       render();
     }
     return;
@@ -361,6 +590,10 @@ function onClick(e: MouseEvent): void {
     const ep = computeEnPassant(move, state.pieces);
     if (ep) state.enPassants.push(ep);
 
+    // Check player pawn promotion
+    const newPromotions = checkPlayerPawnPromotion(state.pieces);
+    promotionRecords.push(...newPromotions);
+
     state.enemyIntents = recalculateIntents(state.enemyIntents, state.pieces);
 
     checkLevelComplete(level, state.pieces);
@@ -382,7 +615,7 @@ function init(): void {
   cc = initCanvas('game-canvas');
   rng = createRng(Date.now());
   economy = createEconomy();
-  startLevel(1);
+  startNewRun();
 
   cc.canvas.addEventListener('click', onClick);
   window.addEventListener('resize', () => { cc = resizeCanvas(cc); render(); });

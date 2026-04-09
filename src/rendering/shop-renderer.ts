@@ -2,7 +2,9 @@ import { CanvasContext } from './canvas.js';
 import { ShopItem, MAX_ARMY_SLOTS } from '../systems/shop.js';
 import { Economy } from '../systems/economy.js';
 import { KingHP } from '../systems/king-hp.js';
+import { ArtifactSlots } from '../core/artifact.js';
 import { Piece, PieceType, PIECE_LABELS } from '../core/piece.js';
+import { MAX_MODIFIER_SLOTS } from '../core/modifier.js';
 import { Position, BOARD_SIZE } from '../utils/types.js';
 import { ButtonRect, drawInfoBar } from './ui-renderer.js';
 import { getSquareColor } from '../core/board.js';
@@ -17,17 +19,28 @@ export interface PlacementState {
   replaceableSquares: Position[];
 }
 
+export interface ModifierApplyState {
+  modifierId: string;
+  modifierName: string;
+  pieceType: PieceType;
+}
+
 const GRID_ROWS = 2; // only show bottom 2 rows
 const GRID_START_ROW = BOARD_SIZE - GRID_ROWS;
 
 let shopCards: ShopCardRect[] = [];
+let artifactRects: ShopCardRect[] = [];
 let continueButton: ButtonRect = { x: 0, y: 0, width: 0, height: 0 };
 let cancelButton: ButtonRect = { x: 0, y: 0, width: 0, height: 0 };
 let gridOrigin = { x: 0, y: 0, cellSize: 0 };
+let selectedPieceId: string | null = null;
 
 export function getShopCards(): readonly ShopCardRect[] { return shopCards; }
+export function getArtifactRects(): readonly ShopCardRect[] { return artifactRects; }
 export function getContinueButton(): ButtonRect { return continueButton; }
 export function getCancelButton(): ButtonRect { return cancelButton; }
+export function getSelectedPieceId(): string | null { return selectedPieceId; }
+export function setSelectedPieceId(id: string | null): void { selectedPieceId = id; }
 
 /** Convert pixel coords to a board position on the army grid, or null. */
 export function shopGridHitTest(px: number, py: number): Position | null {
@@ -46,7 +59,9 @@ export function drawShop(
   playerArmy: readonly Piece[],
   armySlots: number,
   kingHP: KingHP,
+  artifactSlots: ArtifactSlots,
   placement: PlacementState | null,
+  modifierApply: ModifierApplyState | null,
 ): void {
   const { ctx, squareSize, boardOriginX, boardOriginY } = cc;
   const boardPixels = squareSize * BOARD_SIZE;
@@ -72,13 +87,15 @@ export function drawShop(
     gold: economy.gold,
     armyCount: playerArmy.length,
     armySlots,
+    artifactCount: artifactSlots.artifacts.length,
+    artifactSlots: artifactSlots.maxSlots,
   });
 
   // --- Cards ---
   const cardsStartY = infoY + infoFont + 10;
   const cardWidth = Math.floor(boardPixels * 0.85);
-  const cardHeight = Math.floor(squareSize * 0.65);
-  const cardGap = 8;
+  const cardHeight = Math.floor(squareSize * 0.85);
+  const cardGap = 6;
 
   shopCards = [];
 
@@ -90,7 +107,18 @@ export function drawShop(
     let usable = true;
     if (item.type.kind === 'heal' && kingHP.current >= kingHP.max) usable = false;
     if (item.type.kind === 'army_slot' && armySlots >= MAX_ARMY_SLOTS) usable = false;
-    const canBuy = economy.gold >= item.cost && !placement && usable;
+    if (item.type.kind === 'piece' && playerArmy.length >= armySlots) usable = false;
+    if (item.type.kind === 'artifact' && artifactSlots.artifacts.length >= artifactSlots.maxSlots) usable = false;
+    if (item.type.kind === 'modifier') {
+      const mod = item.type.modifier;
+      const canApplyToAny = playerArmy.some(
+        p => p.type === mod.pieceType
+          && p.modifiers.length < MAX_MODIFIER_SLOTS
+          && !p.modifiers.some(m => m.id === mod.id),
+      );
+      if (!canApplyToAny) usable = false;
+    }
+    const canBuy = economy.gold >= item.cost && !placement && !modifierApply && usable;
 
     ctx.fillStyle = canBuy ? '#2a2a4e' : '#1e1e30';
     ctx.strokeStyle = canBuy ? '#5a5a9e' : '#333';
@@ -102,28 +130,94 @@ export function drawShop(
 
     shopCards.push({ x: cardX, y: cardY, width: cardWidth, height: cardHeight, index: i });
 
+    // Name (top-left) + cost (top-right)
     const nameFont = Math.max(12, Math.floor(squareSize * 0.19));
+    const nameY = cardY + cardHeight * 0.35;
     ctx.fillStyle = canBuy ? '#fff' : '#666';
     ctx.font = `bold ${nameFont}px sans-serif`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText(item.name, cardX + 12, cardY + cardHeight / 2);
+    ctx.fillText(item.name, cardX + 12, nameY);
 
-    // Description (middle)
+    ctx.fillStyle = canBuy ? '#f0c040' : '#665520';
+    ctx.textAlign = 'right';
+    ctx.fillText(`${item.cost}g`, cardX + cardWidth - 12, nameY);
+
+    // Rarity dot (if artifact)
+    if (item.rarity) {
+      const RARITY_COLORS: Record<string, string> = { common: '#ccc', uncommon: '#4a9fd9', rare: '#a855f7', legendary: '#f0c040' };
+      const dotColor = RARITY_COLORS[item.rarity] ?? '#ccc';
+      ctx.beginPath();
+      ctx.arc(cardX + cardWidth - 12 - ctx.measureText(`${item.cost}g`).width - 12, nameY, 4, 0, Math.PI * 2);
+      ctx.fillStyle = canBuy ? dotColor : '#444';
+      ctx.fill();
+    }
+
+    // Description (bottom row)
     const descFont = Math.max(10, Math.floor(squareSize * 0.14));
+    const descY = cardY + cardHeight * 0.68;
     ctx.fillStyle = canBuy ? '#999' : '#555';
     ctx.font = `${descFont}px sans-serif`;
-    const nameWidth = ctx.measureText(item.name).width;
-    ctx.font = `bold ${nameFont}px sans-serif`;
-    ctx.font = `${descFont}px sans-serif`;
-    ctx.fillText(` - ${item.description}`, cardX + 12 + nameWidth + 4, cardY + cardHeight / 2);
-
-    // Cost (right)
-    ctx.fillStyle = canBuy ? '#f0c040' : '#665520';
-    ctx.font = `bold ${nameFont}px sans-serif`;
-    ctx.textAlign = 'right';
+    ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText(`${item.cost}g`, cardX + cardWidth - 12, cardY + cardHeight / 2);
+    ctx.fillText(item.description, cardX + 12, descY);
+  }
+
+  // --- Owned artifacts ---
+  artifactRects = [];
+  let afterCardsY = cardsStartY + items.length * (cardHeight + cardGap) + 6;
+
+  if (artifactSlots.artifacts.length > 0) {
+    const artFont = Math.max(11, Math.floor(squareSize * 0.16));
+    const artH = artFont + 8;
+    const artLabel = `Artifacts (${artifactSlots.artifacts.length}/${artifactSlots.maxSlots}) — click to discard`;
+    ctx.fillStyle = '#888';
+    ctx.font = `${artFont}px sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(artLabel, boardOriginX + 8, afterCardsY);
+    afterCardsY += artFont + 4;
+
+    const artWidth = Math.floor(boardPixels * 0.85);
+    for (let i = 0; i < artifactSlots.artifacts.length; i++) {
+      const art = artifactSlots.artifacts[i]!;
+      const ax = boardOriginX + (boardPixels - artWidth) / 2;
+      const ay = afterCardsY + i * (artH + 2);
+
+      const RARITY_COLORS: Record<string, string> = { common: '#ccc', uncommon: '#4a9fd9', rare: '#a855f7', legendary: '#f0c040' };
+      const rarCol = RARITY_COLORS[art.rarity] ?? '#ccc';
+
+      ctx.fillStyle = '#1e1e30';
+      ctx.beginPath();
+      ctx.roundRect(ax, ay, artWidth, artH, 4);
+      ctx.fill();
+
+      artifactRects.push({ x: ax, y: ay, width: artWidth, height: artH, index: i });
+
+      // Rarity dot + name + description
+      ctx.beginPath();
+      ctx.arc(ax + 10, ay + artH / 2, 4, 0, Math.PI * 2);
+      ctx.fillStyle = rarCol;
+      ctx.fill();
+
+      ctx.fillStyle = rarCol;
+      ctx.font = `bold ${artFont}px sans-serif`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(art.name, ax + 20, ay + artH / 2);
+
+      const nameW = ctx.measureText(art.name).width;
+      ctx.fillStyle = '#777';
+      ctx.font = `${Math.floor(artFont * 0.85)}px sans-serif`;
+      ctx.fillText(` - ${art.description}`, ax + 20 + nameW, ay + artH / 2);
+
+      // X button hint
+      ctx.fillStyle = '#555';
+      ctx.font = `bold ${artFont}px sans-serif`;
+      ctx.textAlign = 'right';
+      ctx.fillText('\u2715', ax + artWidth - 8, ay + artH / 2);
+    }
+    afterCardsY += artifactSlots.artifacts.length * (artH + 2) + 4;
   }
 
   // --- Army grid (bottom 2 rows) ---
@@ -131,17 +225,20 @@ export function drawShop(
   const gridW = gridCellSize * BOARD_SIZE;
   const gridH = gridCellSize * GRID_ROWS;
   const gx = boardOriginX + (boardPixels - gridW) / 2;
-  const gridLabelY = cardsStartY + items.length * (cardHeight + cardGap) + 12;
+  const gridLabelY = afterCardsY + 6;
   const gy = gridLabelY + 22;
   gridOrigin = { x: gx, y: gy, cellSize: gridCellSize };
 
   // Label
   const labelFont = Math.max(12, Math.floor(squareSize * 0.19));
-  ctx.fillStyle = placement ? '#7f7' : '#aaa';
+  const isInteractive = placement || modifierApply;
+  ctx.fillStyle = isInteractive ? '#7f7' : '#aaa';
   ctx.font = `bold ${labelFont}px sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
-  const gridLabel = placement ? `Click to place your ${placement.pieceType}` : 'Your Army';
+  let gridLabel = 'Your Army';
+  if (placement) gridLabel = `Click to place your ${placement.pieceType}`;
+  else if (modifierApply) gridLabel = `Apply ${modifierApply.modifierName} to a piece`;
   ctx.fillText(gridLabel, gx + gridW / 2, gy - 4);
 
   // Draw grid
@@ -167,22 +264,54 @@ export function drawShop(
         }
       }
 
-      // Draw piece at its locked position
+      // Highlight modifier-applicable pieces
       const piece = playerArmy.find(p => p.lockedPosition.row === boardRow && p.lockedPosition.col === col);
+      if (
+        modifierApply && piece
+        && piece.type === modifierApply.pieceType
+        && piece.modifiers.length < MAX_MODIFIER_SLOTS
+        && !piece.modifiers.some(m => m.id === modifierApply!.modifierId)
+      ) {
+        ctx.fillStyle = 'rgba(160, 100, 255, 0.35)';
+        ctx.fillRect(cx, cy, gridCellSize, gridCellSize);
+      }
+
+      // Draw piece
       if (piece) {
+        const isSelected = piece.id === selectedPieceId;
+        if (isSelected) {
+          ctx.fillStyle = 'rgba(255, 255, 100, 0.4)';
+          ctx.fillRect(cx, cy, gridCellSize, gridCellSize);
+        }
         const pr = gridCellSize * 0.36;
         ctx.beginPath();
         ctx.arc(cx + gridCellSize / 2, cy + gridCellSize / 2, pr, 0, Math.PI * 2);
         ctx.fillStyle = '#4a90d9';
         ctx.fill();
-        ctx.strokeStyle = '#222';
-        ctx.lineWidth = 1;
+        ctx.strokeStyle = isSelected ? '#ff0' : '#222';
+        ctx.lineWidth = isSelected ? 2 : 1;
         ctx.stroke();
         ctx.fillStyle = '#fff';
         ctx.font = `bold ${Math.floor(gridCellSize * 0.38)}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(PIECE_LABELS[piece.type], cx + gridCellSize / 2, cy + gridCellSize / 2);
+
+        // Modifier count indicator
+        if (piece.modifiers.length > 0) {
+          const dotR = gridCellSize * 0.1;
+          const dotX = cx + gridCellSize - dotR - 2;
+          const dotY = cy + gridCellSize - dotR - 2;
+          ctx.beginPath();
+          ctx.arc(dotX, dotY, dotR, 0, Math.PI * 2);
+          ctx.fillStyle = '#a855f7';
+          ctx.fill();
+          ctx.fillStyle = '#fff';
+          ctx.font = `bold ${Math.floor(dotR * 1.4)}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(`${piece.modifiers.length}`, dotX, dotY);
+        }
       }
     }
   }
@@ -192,12 +321,55 @@ export function drawShop(
   ctx.lineWidth = 2;
   ctx.strokeRect(gx, gy, gridW, gridH);
 
-  // --- Continue button (only if not placing) ---
-  if (!placement) {
+  // --- Selected piece info panel ---
+  const selPiece = selectedPieceId ? playerArmy.find(p => p.id === selectedPieceId) : null;
+  let panelBottomY = gy + gridH;
+  if (selPiece && !placement && !modifierApply) {
+    const panelY = gy + gridH + 4;
+    const panelFont = Math.max(11, Math.floor(squareSize * 0.16));
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+
+    // Piece name
+    ctx.fillStyle = '#4a90d9';
+    ctx.font = `bold ${panelFont}px sans-serif`;
+    const pieceName = selPiece.type.charAt(0).toUpperCase() + selPiece.type.slice(1);
+    ctx.fillText(pieceName, gx, panelY);
+
+    // Filter out artifact-granted modifiers for display
+    const playerMods = selPiece.modifiers.filter(m => !m.id.startsWith('artifact_'));
+
+    if (playerMods.length === 0) {
+      ctx.fillStyle = '#666';
+      ctx.font = `${panelFont}px sans-serif`;
+      ctx.fillText('No modifiers', gx, panelY + panelFont + 4);
+      panelBottomY = panelY + panelFont * 2 + 8;
+    } else {
+      let my = panelY + panelFont + 4;
+      for (const mod of playerMods) {
+        ctx.fillStyle = '#a855f7';
+        ctx.font = `bold ${panelFont}px sans-serif`;
+        ctx.fillText(`\u2726 ${mod.name}`, gx, my);
+        ctx.fillStyle = '#888';
+        ctx.font = `${Math.floor(panelFont * 0.85)}px sans-serif`;
+        ctx.fillText(` - ${mod.description}`, gx + ctx.measureText(`\u2726 ${mod.name}`).width + 4, my);
+        my += panelFont + 3;
+      }
+      panelBottomY = my;
+    }
+
+    const slotText = `Modifier slots: ${playerMods.length}/${MAX_MODIFIER_SLOTS}`;
+    ctx.fillStyle = '#666';
+    ctx.font = `${Math.floor(panelFont * 0.85)}px sans-serif`;
+    ctx.fillText(slotText, gx + gridW - ctx.measureText(slotText).width, gy + gridH + 4);
+  }
+
+  // --- Continue button (only if not placing/applying) ---
+  if (!placement && !modifierApply) {
     const btnWidth = squareSize * 2.5;
     const btnHeight = 38;
     const btnX = boardOriginX + (boardPixels - btnWidth) / 2;
-    const btnY = gy + gridH + 14;
+    const btnY = panelBottomY + 10;
 
     continueButton = { x: btnX, y: btnY, width: btnWidth, height: btnHeight };
 

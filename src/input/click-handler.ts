@@ -60,6 +60,7 @@ export function executeMove(move: Move, pieces: Piece[]): void {
   if (piece) {
     piece.position = { ...move.to };
     piece.hasMoved = true;
+    if (move.capturedPieceId) piece.hasCapturedThisTurn = true;
   }
 }
 

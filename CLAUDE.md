@@ -269,7 +269,7 @@ Build and validate in this exact order:
 24. King heal option
 
 ### Phase 6 — Artifacts & Modifiers
-25. Artifact slot system (4 slots)
+25. Artifact slot system (6 slots)
 26. Implement 10-15 artifacts (mix of rarities)
 27. Modifier slot system (2 per piece)
 28. Implement 8-10 modifiers

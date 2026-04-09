@@ -10,7 +10,7 @@ export interface CanvasContext {
 
 const CANVAS_PADDING = 40;
 const HUD_TOP = 56;
-const HUD_BOTTOM = 50;
+const HUD_BOTTOM = 70;
 
 export function initCanvas(canvasId: string): CanvasContext {
   const canvas = document.getElementById(canvasId) as HTMLCanvasElement | null;

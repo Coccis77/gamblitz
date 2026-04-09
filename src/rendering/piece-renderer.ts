@@ -2,6 +2,7 @@ import { Piece, PIECE_LABELS } from '../core/piece.js';
 import { CanvasContext, boardToPixel } from './canvas.js';
 
 const PLAYER_COLOR = '#4a90d9';
+const PLAYER_EXHAUSTED_COLOR = '#3a5a7a';
 const ENEMY_COLOR = '#d94a4a';
 const PIECE_RADIUS_RATIO = 0.38;
 
@@ -19,9 +20,11 @@ function drawPiece(cc: CanvasContext, piece: Piece): void {
   const radius = squareSize * PIECE_RADIUS_RATIO;
 
   // Circle
+  const exhausted = piece.owner === 'player' && piece.hasCapturedThisTurn;
   ctx.beginPath();
   ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-  ctx.fillStyle = piece.owner === 'player' ? PLAYER_COLOR : ENEMY_COLOR;
+  ctx.fillStyle = exhausted ? PLAYER_EXHAUSTED_COLOR
+    : piece.owner === 'player' ? PLAYER_COLOR : ENEMY_COLOR;
   ctx.fill();
   ctx.strokeStyle = '#222';
   ctx.lineWidth = 2;
@@ -29,7 +32,7 @@ function drawPiece(cc: CanvasContext, piece: Piece): void {
 
   // Letter
   const label = PIECE_LABELS[piece.type];
-  ctx.fillStyle = '#fff';
+  ctx.fillStyle = exhausted ? '#999' : '#fff';
   ctx.font = `bold ${Math.floor(squareSize * 0.35)}px sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';

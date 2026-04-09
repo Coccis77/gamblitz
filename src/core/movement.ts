@@ -18,7 +18,7 @@ const KNIGHT_JUMPS: Dir[] = [
 
 export type AbilityType = 'slide' | 'jump' | 'step';
 
-export type DirectionSet = 'orthogonal' | 'diagonal' | 'all' | 'knight' | 'forward' | 'forward-diagonal';
+export type DirectionSet = 'orthogonal' | 'diagonal' | 'all' | 'knight' | 'forward' | 'forward-diagonal' | 'backward-diagonal';
 
 export type AbilityCondition = 'first-move-only';
 
@@ -40,6 +40,7 @@ function resolveDirections(set: DirectionSet, owner: Piece['owner']): Dir[] {
     case 'knight': return KNIGHT_JUMPS;
     case 'forward': return [[forward, 0]];
     case 'forward-diagonal': return [[forward, -1], [forward, 1]];
+    case 'backward-diagonal': return [[-forward, -1], [-forward, 1]];
   }
 }
 
@@ -69,7 +70,9 @@ const DEFAULT_ABILITIES: Record<PieceType, MovementAbility[]> = {
 };
 
 export function getAbilities(piece: Piece): MovementAbility[] {
-  return DEFAULT_ABILITIES[piece.type];
+  const base = DEFAULT_ABILITIES[piece.type];
+  if (piece.modifiers.length === 0) return base;
+  return [...base, ...piece.modifiers.map(m => m.ability)];
 }
 
 // --- Legal move computation ---
@@ -134,6 +137,11 @@ export function getLegalMoves(
         });
       }
     }
+  }
+
+  // Player pieces that captured this turn cannot move again
+  if (piece.owner === 'player' && piece.hasCapturedThisTurn) {
+    return [];
   }
 
   return moves;

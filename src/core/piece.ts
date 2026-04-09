@@ -1,4 +1,5 @@
 import { Position } from '../utils/types.js';
+import { ModifierDef } from './modifier.js';
 
 export type PieceType = 'king' | 'queen' | 'rook' | 'bishop' | 'knight' | 'pawn';
 
@@ -11,6 +12,8 @@ export interface Piece {
   lockedPosition: Position;
   position: Position;
   hasMoved: boolean;
+  hasCapturedThisTurn: boolean;
+  modifiers: ModifierDef[];
 }
 
 export const PIECE_LABELS: Record<PieceType, string> = {
@@ -32,5 +35,7 @@ export function createPiece(type: PieceType, owner: Owner, position: Position): 
     lockedPosition: { ...position },
     position: { ...position },
     hasMoved: false,
+    hasCapturedThisTurn: false,
+    modifiers: [],
   };
 }

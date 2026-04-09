@@ -52,4 +52,10 @@ export function startPlayerTurn(state: GameState): void {
   state.phase = 'player_turn';
   state.movesRemaining = state.maxMovesPerTurn;
   state.turnNumber++;
+  // Reset per-turn capture flags for player pieces
+  for (const piece of state.pieces) {
+    if (piece.owner === 'player') {
+      piece.hasCapturedThisTurn = false;
+    }
+  }
 }

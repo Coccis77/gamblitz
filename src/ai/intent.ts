@@ -100,8 +100,9 @@ function moveTowardTarget(enemy: Piece, moves: Move[], playerPieces: readonly Pi
 }
 
 /**
- * Recalculate all enemy intents after a player move.
- * If the original intent is still legal, keep it. Otherwise recompute.
+ * Recalculate enemy intents after a player move.
+ * Keep the original intent if the exact move is still legal (same target, same capture status).
+ * Otherwise recompute — this catches pieces placed in the way (new capture) or blocking the path.
  */
 export function recalculateIntents(
   currentIntents: readonly EnemyIntent[],
@@ -114,24 +115,20 @@ export function recalculateIntents(
     const existing = currentIntents.find(i => i.pieceId === enemy.id);
     const legalMoves = getLegalMoves(enemy, pieces);
 
-    // Check if existing intent is still legal
     if (existing) {
-      const stillLegal = legalMoves.some(
-        m => m.to.row === existing.move.to.row && m.to.col === existing.move.to.col,
+      // Find the exact same move: same target square AND same capture status
+      const sameMove = legalMoves.find(
+        m => m.to.row === existing.move.to.row
+          && m.to.col === existing.move.to.col
+          && !!m.capturedPieceId === !!existing.move.capturedPieceId,
       );
-      if (stillLegal) {
-        // Update the move (capturedPieceId may have changed)
-        const updatedMove = legalMoves.find(
-          m => m.to.row === existing.move.to.row && m.to.col === existing.move.to.col,
-        );
-        if (updatedMove) {
-          newIntents.push({ pieceId: enemy.id, move: updatedMove });
-          continue;
-        }
+      if (sameMove) {
+        newIntents.push({ pieceId: enemy.id, move: sameMove });
+        continue;
       }
     }
 
-    // Recompute from scratch
+    // Original intent is no longer valid — recompute
     const intent = computeIntent(enemy, pieces);
     if (intent) newIntents.push(intent);
   }
