@@ -66,17 +66,24 @@ export function drawShop(
   const { ctx, squareSize, boardOriginX, boardOriginY } = cc;
   const boardPixels = squareSize * BOARD_SIZE;
 
-  // Background
-  ctx.fillStyle = '#1a1a2e';
+  // Background with gradient
+  const bgGrad = ctx.createLinearGradient(0, 0, 0, cc.canvas.height);
+  bgGrad.addColorStop(0, '#1a1a2e');
+  bgGrad.addColorStop(1, '#0e0e1a');
+  ctx.fillStyle = bgGrad;
   ctx.fillRect(0, 0, cc.canvas.width, cc.canvas.height);
 
   // --- Title ---
   const centerX = boardOriginX + boardPixels / 2;
   const titleFont = Math.floor(squareSize * 0.45);
-  ctx.fillStyle = '#e0e0e0';
+  ctx.fillStyle = '#f0c040';
   ctx.font = `bold ${titleFont}px sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
+  // Title with shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.fillText('SHOP', centerX + 2, boardOriginY + 2);
+  ctx.fillStyle = '#f0c040';
   ctx.fillText('SHOP', centerX, boardOriginY);
 
   // --- Info bar (same as in-game HUD) ---
@@ -130,14 +137,32 @@ export function drawShop(
 
     shopCards.push({ x: cardX, y: cardY, width: cardWidth, height: cardHeight, index: i });
 
-    // Name (top-left) + cost (top-right)
+    // Category icon + Name (top-left) + cost (top-right)
     const nameFont = Math.max(12, Math.floor(squareSize * 0.19));
     const nameY = cardY + cardHeight * 0.35;
-    ctx.fillStyle = canBuy ? '#fff' : '#666';
-    ctx.font = `bold ${nameFont}px sans-serif`;
+
+    // Icon based on item type
+    let icon = '';
+    let iconColor = '#888';
+    switch (item.type.kind) {
+      case 'piece':    icon = '\u265F'; iconColor = '#4a90d9'; break; // pawn symbol
+      case 'modifier': icon = '\u2726'; iconColor = '#a855f7'; break; // diamond
+      case 'artifact': icon = '\u2605'; iconColor = '#f0c040'; break; // star
+      case 'heal':     icon = '\u2665'; iconColor = '#e55';    break; // heart
+      case 'army_slot':icon = '\u2795'; iconColor = '#4a90d9'; break; // plus
+      case 'extra_move':icon = '\u27A1'; iconColor = '#4adf4a'; break; // arrow
+    }
+
+    ctx.fillStyle = canBuy ? iconColor : '#444';
+    ctx.font = `${nameFont}px sans-serif`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText(item.name, cardX + 12, nameY);
+    ctx.fillText(icon, cardX + 10, nameY);
+    const iconW = ctx.measureText(icon).width + 6;
+
+    ctx.fillStyle = canBuy ? '#fff' : '#666';
+    ctx.font = `bold ${nameFont}px sans-serif`;
+    ctx.fillText(item.name, cardX + 10 + iconW, nameY);
 
     ctx.fillStyle = canBuy ? '#f0c040' : '#665520';
     ctx.textAlign = 'right';

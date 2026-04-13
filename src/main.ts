@@ -3,7 +3,7 @@ import { drawBoard } from './rendering/board-renderer.js';
 import { drawPieces } from './rendering/piece-renderer.js';
 import { drawIntents } from './rendering/intent-renderer.js';
 import {
-  drawHUD, drawLevelComplete, drawGameOver,
+  drawHUD, drawLevelComplete, drawGameOver, drawVictory,
   getEndTurnButton, getNextLevelButton, getRestartButton, isInsideButton,
   ButtonRect, RunStats,
 } from './rendering/ui-renderer.js';
@@ -27,6 +27,13 @@ import { RunState, createRunState, advanceRun, hasMutation } from './systems/run
 import { GameEvent, EventEffect, rollEvent } from './systems/events.js';
 import { drawEventScreen, getEventOptionButtons } from './rendering/event-renderer.js';
 import { PromotionRecord, checkPlayerPawnPromotion, revertPromotions } from './systems/promotion.js';
+import { drawTitleScreen, getTitleStartButton } from './rendering/title-renderer.js';
+import { drawDraftScreen, getDraftButtons } from './rendering/draft-renderer.js';
+import { ArtifactDef } from './core/artifact.js';
+import { ALL_ARTIFACTS } from './data/artifacts.js';
+import { drawTutorialScreen, getTutorialNextButton, getTutorialSkipButton, getTutorialPageCount } from './rendering/tutorial-renderer.js';
+import { startFadeOut, isFading, updateFade, drawFade } from './rendering/transition.js';
+import { addFlash, updateEffects, hasActiveEffects, drawEffects } from './rendering/effects.js';
 import { createRng, RngFn } from './utils/rng.js';
 import {
   LevelState, createLevel, buildGameStateForLevel, checkLevelComplete,
@@ -39,7 +46,7 @@ import {
 import { ShopItem, generateShopItems, generateReplacementItem, MAX_ARMY_SLOTS } from './systems/shop.js';
 import { BOARD_SIZE } from './utils/types.js';
 
-type Screen = 'level' | 'event' | 'shop';
+type Screen = 'title' | 'tutorial' | 'draft' | 'level' | 'event' | 'shop';
 
 let cc: CanvasContext;
 let state: GameState;
@@ -57,6 +64,8 @@ let pendingPlacementCost = 0;
 let pendingShopIndex = -1;
 let currentEvent: GameEvent | null = null;
 let promotionRecords: PromotionRecord[] = [];
+let tutorialPage = 0;
+let draftArtifacts: import('./core/artifact.js').ArtifactDef[] = [];
 
 // ─── Level management ────────────────────────────────────
 
@@ -69,6 +78,14 @@ function startNewRun(seed?: number): void {
   state = buildGameStateForLevel(level, run, rng);
   selection = createSelectionState();
   promotionRecords = [];
+
+  // Pick 2 random artifacts for draft
+  const shuffled = [...ALL_ARTIFACTS].sort(() => rng() - 0.5);
+  draftArtifacts = shuffled.slice(0, 2);
+  screen = 'draft';
+}
+
+function finishDraft(): void {
   screen = 'level';
   applyMutationsToState();
 }
@@ -259,6 +276,7 @@ function performMove(move: Move): boolean {
 
         if (!dodged) {
           const survived = handleKingHit(target, hp, state.pieces, rng);
+          addFlash(move.to, 'rgb(255, 200, 50)');
           if (!survived) {
             if (target.owner === 'player') {
               level.gameOver = true;
@@ -278,6 +296,7 @@ function performMove(move: Move): boolean {
   const hadCapture = !!move.capturedPieceId;
   executeMove(move, state.pieces);
   if (hadCapture) {
+    addFlash(move.to, 'rgb(255, 50, 50)');
     onPieceCaptured(level);
     onCaptureRewards();
   }
@@ -308,8 +327,33 @@ function onCaptureRewards(): void {
 
 // ─── Render ──────────────────────────────────────────────
 
+function checkObjectiveAndVictory(): void {
+  checkLevelComplete(level, state.pieces);
+  if (level.completed && level.template.levelType === 'boss') {
+    level.victory = true;
+  }
+}
+
 function render(): void {
   cc.ctx.clearRect(0, 0, cc.canvas.width, cc.canvas.height);
+
+  if (screen === 'title') {
+    drawTitleScreen(cc);
+    drawFade(cc.ctx, cc.canvas.width, cc.canvas.height);
+    return;
+  }
+
+  if (screen === 'tutorial') {
+    drawTutorialScreen(cc, tutorialPage);
+    drawFade(cc.ctx, cc.canvas.width, cc.canvas.height);
+    return;
+  }
+
+  if (screen === 'draft') {
+    drawDraftScreen(cc, draftArtifacts);
+    drawFade(cc.ctx, cc.canvas.width, cc.canvas.height);
+    return;
+  }
 
   if (screen === 'event' && currentEvent) {
     drawEventScreen(cc, currentEvent);
@@ -322,20 +366,27 @@ function render(): void {
   }
 
   drawBoard(cc, selection.selectedPiece?.position ?? null, selection.legalMoves);
+  drawEffects(cc.ctx, cc.boardOriginX, cc.boardOriginY, cc.squareSize);
   if (!hasMutation(run, 'fog_of_war')) {
     drawIntents(cc, state.enemyIntents, state.pieces);
   }
   drawPieces(cc, state.pieces);
   drawHUD(cc, state, level, economy, run.rank, selection.selectedPiece);
 
-  if (level.gameOver) drawGameOver(cc, {
+  const runStats: RunStats = {
     rank: run.rank,
     levelsCleared: run.totalLevelsCleared,
     totalCaptures: run.totalCaptures,
     totalGoldEarned: run.totalGoldEarned,
     seed: run.seed,
-  });
+  };
+
+  if (level.gameOver) drawGameOver(cc, runStats);
+  else if (level.victory) drawVictory(cc, runStats);
   else if (level.completed) drawLevelComplete(cc);
+
+  // Fade overlay on top of everything
+  drawFade(cc.ctx, cc.canvas.width, cc.canvas.height);
 }
 
 // ─── Enemy turn execution ────────────────────────────────
@@ -348,14 +399,15 @@ function executeEnemyTurn(): void {
   state.enPassants = [];
   render();
 
-  const intents = [...state.enemyIntents];
+  let intents = [...state.enemyIntents];
   let i = 0;
+  let enemyPass = 0;
 
   function executeNext(): void {
     if (level.gameOver) { render(); return; }
 
     if (i >= intents.length) {
-      const promoted = checkEnemyPawnPromotion(state.pieces);
+      const promoted = checkEnemyPawnPromotion(state.pieces, level.template.levelType === 'boss');
       for (const _ of promoted) {
         const playerKing = state.pieces.find(p => p.owner === 'player' && p.type === 'king');
         if (playerKing) {
@@ -364,10 +416,18 @@ function executeEnemyTurn(): void {
         }
       }
 
+      if (enemyPass === 0 && hasMutation(run, 'enemy_extra_move')) {
+        enemyPass++;
+        intents = computeAllIntents(state.pieces);
+        i = 0;
+        setTimeout(executeNext, ENEMY_MOVE_DELAY_MS);
+        return;
+      }
+
       onTurnEnd(level);
       startPlayerTurn(state);
       state.enemyIntents = computeAllIntents(state.pieces);
-      checkLevelComplete(level, state.pieces);
+      checkObjectiveAndVictory();
       render();
       return;
     }
@@ -375,6 +435,17 @@ function executeEnemyTurn(): void {
     const intent = intents[i]!;
     const piece = state.pieces.find(p => p.id === intent.pieceId);
     if (piece) {
+      // Skip if target square is now occupied by a friendly piece
+      const occupant = state.pieces.find(
+        p => p.id !== piece.id && p.position.row === intent.move.to.row && p.position.col === intent.move.to.col,
+      );
+      if (occupant && occupant.owner === piece.owner) {
+        i++;
+        executeNext();
+        return;
+      }
+
+      // Skip if capture target is gone or now friendly
       if (intent.move.capturedPieceId) {
         const target = state.pieces.find(p => p.id === intent.move.capturedPieceId);
         if (!target || target.owner === piece.owner) {
@@ -494,12 +565,13 @@ function onShopClick(x: number, y: number): void {
   // Continue button
   if (isInsideButton(getContinueButton(), x, y)) {
     const extraMoves = level.extraMoves ?? 0;
-    startNextLevel();
-    if (extraMoves) {
-      state.maxMovesPerTurn += extraMoves;
-      state.movesRemaining = state.maxMovesPerTurn;
-    }
-    render();
+    startFadeOut(() => {
+      startNextLevel();
+      if (extraMoves) {
+        state.maxMovesPerTurn += extraMoves;
+        state.movesRemaining = state.maxMovesPerTurn;
+      }
+    }, 0.06);
     return;
   }
 
@@ -519,9 +591,51 @@ function onShopClick(x: number, y: number): void {
 }
 
 function onClick(e: MouseEvent): void {
+  if (isFading()) return;
   const rect = cc.canvas.getBoundingClientRect();
   const x = e.clientX - rect.left;
   const y = e.clientY - rect.top;
+
+  if (screen === 'title') {
+    if (isInsideButton(getTitleStartButton(), x, y)) {
+      tutorialPage = 0;
+      startFadeOut(() => { screen = 'tutorial'; }, 0.06);
+    }
+    return;
+  }
+
+  if (screen === 'tutorial') {
+    if (isInsideButton(getTutorialSkipButton(), x, y)) {
+      startFadeOut(() => { startNewRun(); }, 0.06);
+      return;
+    }
+    if (isInsideButton(getTutorialNextButton(), x, y)) {
+      if (tutorialPage < getTutorialPageCount() - 1) {
+        tutorialPage++;
+        render();
+      } else {
+        startFadeOut(() => { startNewRun(); }, 0.06);
+      }
+      return;
+    }
+    return;
+  }
+
+  if (screen === 'draft') {
+    for (let i = 0; i < getDraftButtons().length; i++) {
+      const btn = getDraftButtons()[i]!;
+      if (isInsideButton(btn, x, y)) {
+        const chosen = draftArtifacts[i]!;
+        addArtifact(level.artifactSlots, chosen);
+        if (chosen.effect.kind === 'extra_slot') {
+          level.artifactSlots.maxSlots++;
+        }
+        startFadeOut(() => { finishDraft(); }, 0.06);
+        return;
+      }
+    }
+    return;
+  }
 
   if (screen === 'event' && currentEvent) {
     for (let i = 0; i < getEventOptionButtons().length; i++) {
@@ -531,8 +645,7 @@ function onClick(e: MouseEvent): void {
         applyEvent(opt.effect);
         currentEvent = null;
         if (level.gameOver) { render(); return; }
-        enterShop();
-        render();
+        fadeToShop();
         return;
       }
     }
@@ -545,7 +658,12 @@ function onClick(e: MouseEvent): void {
   }
 
   if (level.gameOver) {
-    if (isInsideButton(getRestartButton(), x, y)) { startNewRun(); render(); }
+    if (isInsideButton(getRestartButton(), x, y)) { fadeToRestart(); }
+    return;
+  }
+
+  if (level.victory) {
+    if (isInsideButton(getRestartButton(), x, y)) { fadeToRestart(); }
     return;
   }
 
@@ -561,11 +679,10 @@ function onClick(e: MouseEvent): void {
       // Roll for random event
       currentEvent = rollEvent(rng);
       if (currentEvent) {
-        screen = 'event';
+        fadeToEvent();
       } else {
-        enterShop();
+        fadeToShop();
       }
-      render();
     }
     return;
   }
@@ -590,14 +707,15 @@ function onClick(e: MouseEvent): void {
     const ep = computeEnPassant(move, state.pieces);
     if (ep) state.enPassants.push(ep);
 
+    // Check objective before promotion (pawn on row 0 counts before becoming queen)
+    checkObjectiveAndVictory();
+    if (level.completed || level.gameOver) { render(); return; }
+
     // Check player pawn promotion
     const newPromotions = checkPlayerPawnPromotion(state.pieces);
     promotionRecords.push(...newPromotions);
 
     state.enemyIntents = recalculateIntents(state.enemyIntents, state.pieces);
-
-    checkLevelComplete(level, state.pieces);
-    if (level.completed || level.gameOver) { render(); return; }
 
     if (isPlayerTurnOver(state)) {
       render();
@@ -609,18 +727,46 @@ function onClick(e: MouseEvent): void {
   render();
 }
 
+// ─── Fade helpers ────────────────────────────────────────
+
+function fadeToShop(): void {
+  startFadeOut(() => { enterShop(); }, 0.06);
+}
+
+function fadeToEvent(): void {
+  startFadeOut(() => { screen = 'event'; }, 0.06);
+}
+
+function fadeToNextLevel(): void {
+  startFadeOut(() => { startNextLevel(); }, 0.06);
+}
+
+function fadeToRestart(): void {
+  startFadeOut(() => { startNewRun(); }, 0.06);
+}
+
+// ─── Game loop ───────────────────────────────────────────
+
+function gameLoop(): void {
+  updateEffects();
+  if (isFading() || hasActiveEffects()) {
+    if (isFading()) updateFade();
+    render();
+  }
+  requestAnimationFrame(gameLoop);
+}
+
 // ─── Init ────────────────────────────────────────────────
 
 function init(): void {
   cc = initCanvas('game-canvas');
-  rng = createRng(Date.now());
-  economy = createEconomy();
-  startNewRun();
+  screen = 'title';
 
   cc.canvas.addEventListener('click', onClick);
   window.addEventListener('resize', () => { cc = resizeCanvas(cc); render(); });
 
   render();
+  requestAnimationFrame(gameLoop);
 }
 
 init();

@@ -51,7 +51,7 @@ export const NORMAL_TEMPLATES: LevelTemplate[] = [
       { type: 'pawn', position: { row: 2, col: 1 } },
       { type: 'pawn', position: { row: 2, col: 4 } },
     ],
-    objective: { kind: 'reach_rank', row: 0 },
+    objective: { kind: 'promote_pawn' },
   },
   {
     name: 'Knight Raid',
@@ -63,6 +63,17 @@ export const NORMAL_TEMPLATES: LevelTemplate[] = [
       { type: 'pawn', position: { row: 1, col: 5 } },
     ],
     objective: { kind: 'capture_count', count: 3 },
+  },
+  {
+    name: 'Cavalry Charge',
+    levelType: 'normal',
+    enemies: [
+      { type: 'knight', position: { row: 0, col: 0 } },
+      { type: 'knight', position: { row: 0, col: 5 } },
+      { type: 'knight', position: { row: 1, col: 2 } },
+      { type: 'pawn', position: { row: 2, col: 3 } },
+    ],
+    objective: { kind: 'capture_all' },
   },
 ];
 
@@ -107,6 +118,20 @@ export const ELITE_TEMPLATES: LevelTemplate[] = [
     ],
     objective: { kind: 'capture_count', count: 5 },
   },
+  {
+    name: 'The Encirclement',
+    levelType: 'elite',
+    enemies: [
+      { type: 'queen', position: { row: 0, col: 3 } },
+      { type: 'bishop', position: { row: 0, col: 0 } },
+      { type: 'bishop', position: { row: 0, col: 5 } },
+      { type: 'pawn', position: { row: 1, col: 1 } },
+      { type: 'pawn', position: { row: 1, col: 4 } },
+      { type: 'pawn', position: { row: 2, col: 2 } },
+      { type: 'pawn', position: { row: 2, col: 3 } },
+    ],
+    objective: { kind: 'capture_count', count: 5 },
+  },
 ];
 
 // ─── Boss templates ──────────────────────────────────────
@@ -137,6 +162,20 @@ export const BOSS_TEMPLATES: LevelTemplate[] = [
       { type: 'pawn', position: { row: 1, col: 1 } },
       { type: 'pawn', position: { row: 1, col: 3 } },
       { type: 'pawn', position: { row: 1, col: 5 } },
+    ],
+    objective: { kind: 'defeat_king', hp: 3 },
+  },
+  {
+    name: 'King\'s Guard',
+    levelType: 'boss',
+    enemies: [
+      { type: 'king', position: { row: 0, col: 2 } },
+      { type: 'rook', position: { row: 0, col: 0 } },
+      { type: 'rook', position: { row: 0, col: 5 } },
+      { type: 'knight', position: { row: 1, col: 1 } },
+      { type: 'knight', position: { row: 1, col: 4 } },
+      { type: 'pawn', position: { row: 2, col: 2 } },
+      { type: 'pawn', position: { row: 2, col: 3 } },
     ],
     objective: { kind: 'defeat_king', hp: 3 },
   },

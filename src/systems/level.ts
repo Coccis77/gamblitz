@@ -22,18 +22,75 @@ export interface LevelState {
   artifactSlots: ArtifactSlots;
   completed: boolean;
   gameOver: boolean;
+  victory: boolean;
   extraMoves?: number;
 }
 
-function createPlayerArmy(): Piece[] {
-  return [
-    createPiece('king', 'player', { row: 5, col: 2 }),
-    createPiece('queen', 'player', { row: 5, col: 3 }),
-    createPiece('rook', 'player', { row: 5, col: 0 }),
-    createPiece('knight', 'player', { row: 5, col: 4 }),
-    createPiece('pawn', 'player', { row: 4, col: 1 }),
-    createPiece('pawn', 'player', { row: 4, col: 3 }),
-  ];
+const PIECE_POWER: Record<PieceType, number> = {
+  king: 0, // king is free — always included
+  pawn: 1,
+  knight: 3,
+  bishop: 3,
+  rook: 5,
+  queen: 9,
+};
+
+const BUYABLE_TYPES: PieceType[] = ['pawn', 'knight', 'bishop', 'rook', 'queen'];
+
+function createPlayerArmy(rng: RngFn): Piece[] {
+  const TARGET_POWER = 14;
+  const TARGET_COUNT = 4; // 4 non-king pieces
+
+  // Generate a random army that fits the power budget
+  const chosen: PieceType[] = [];
+  let power = 0;
+
+  for (let i = 0; i < TARGET_COUNT; i++) {
+    const remaining = TARGET_POWER - power;
+    const slotsLeft = TARGET_COUNT - i;
+    const maxPerSlot = remaining - (slotsLeft - 1); // leave at least 1 per remaining slot
+    const affordable = BUYABLE_TYPES.filter(t => PIECE_POWER[t] <= maxPerSlot);
+    if (affordable.length === 0) break;
+    const picked = pick(affordable, rng);
+    if (!picked) break;
+    chosen.push(picked);
+    power += PIECE_POWER[picked];
+  }
+
+  // Fill remaining budget with pawns
+  while (power < TARGET_POWER && chosen.length < TARGET_COUNT) {
+    chosen.push('pawn');
+    power += 1;
+  }
+
+  // Place pieces: non-pawns on row 5, pawns on row 4
+  const army: Piece[] = [];
+  army.push(createPiece('king', 'player', { row: 5, col: 2 }));
+
+  const nonPawns = chosen.filter(t => t !== 'pawn');
+  const pawns = chosen.filter(t => t === 'pawn');
+
+  // Shuffle column positions
+  const row5Cols = [0, 1, 3, 4, 5].sort(() => rng() - 0.5);
+  const row4Cols = [0, 1, 2, 3, 4, 5].sort(() => rng() - 0.5);
+
+  let colIdx = 0;
+  for (const type of nonPawns) {
+    if (colIdx < row5Cols.length) {
+      army.push(createPiece(type, 'player', { row: 5, col: row5Cols[colIdx]! }));
+      colIdx++;
+    }
+  }
+
+  let pawnColIdx = 0;
+  for (const _ of pawns) {
+    if (pawnColIdx < row4Cols.length) {
+      army.push(createPiece('pawn', 'player', { row: 4, col: row4Cols[pawnColIdx]! }));
+      pawnColIdx++;
+    }
+  }
+
+  return army;
 }
 
 function pickTemplate(levelType: LevelType, rng: RngFn): LevelTemplate {
@@ -99,7 +156,7 @@ export function createLevel(
 
   const army = persisted?.playerArmy
     ? resetArmyPositions(persisted.playerArmy)
-    : createPlayerArmy();
+    : createPlayerArmy(rng);
 
   return {
     levelNumber: run.totalLevelsCleared + 1,
@@ -113,6 +170,7 @@ export function createLevel(
     artifactSlots: persisted?.artifactSlots ?? createArtifactSlots(),
     completed: false,
     gameOver: false,
+    victory: false,
   };
 }
 
@@ -212,7 +270,7 @@ export function onTurnEnd(level: LevelState): void {
   level.progress.turnsElapsed++;
 }
 
-export function checkEnemyPawnPromotion(pieces: Piece[]): Piece[] {
+export function checkEnemyPawnPromotion(pieces: Piece[], isBoss: boolean): Piece[] {
   const promoted: Piece[] = [];
   const backRank = BOARD_SIZE - 1;
 
@@ -220,7 +278,11 @@ export function checkEnemyPawnPromotion(pieces: Piece[]): Piece[] {
     const p = pieces[i]!;
     if (p.owner === 'enemy' && p.type === 'pawn' && p.position.row === backRank) {
       promoted.push(p);
-      pieces.splice(i, 1);
+      if (isBoss) {
+        p.type = 'queen';
+      } else {
+        pieces.splice(i, 1);
+      }
     }
   }
 

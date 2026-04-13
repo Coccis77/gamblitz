@@ -16,7 +16,7 @@ export const ALL_MODIFIERS: ModifierDef[] = [
     description: 'Pawn slides up to 3 forward',
     cost: 4,
     pieceType: 'pawn',
-    ability: { type: 'slide', directions: 'forward', maxRange: 3, canCapture: true, canMoveWithoutCapture: true },
+    ability: { type: 'slide', directions: 'forward', maxRange: 3, canCapture: false, canMoveWithoutCapture: true },
   },
 
   // ─── Knight ────────────────────────────────────
@@ -39,12 +39,12 @@ export const ALL_MODIFIERS: ModifierDef[] = [
 
   // ─── Bishop ────────────────────────────────────
   {
-    id: 'bishop_forward_step',
-    name: 'Bishop Advance',
-    description: 'Bishop can step 1 forward',
-    cost: 3,
+    id: 'bishop_long_diagonal',
+    name: 'Far Sight',
+    description: 'Bishop slides up to 2 orthogonally',
+    cost: 5,
     pieceType: 'bishop',
-    ability: { type: 'step', directions: 'forward', maxRange: 1, canCapture: false, canMoveWithoutCapture: true },
+    ability: { type: 'slide', directions: 'orthogonal', maxRange: 2, canCapture: true, canMoveWithoutCapture: true },
   },
   {
     id: 'bishop_knight_jump',

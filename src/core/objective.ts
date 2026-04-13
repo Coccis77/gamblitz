@@ -5,7 +5,7 @@ export type ObjectiveType =
   | { kind: 'capture_type'; pieceType: PieceType }
   | { kind: 'survive'; turns: number }
   | { kind: 'capture_count'; count: number }
-  | { kind: 'reach_rank'; row: number }
+  | { kind: 'promote_pawn' }
   | { kind: 'defeat_king'; hp: number };
 
 export interface Objective {
@@ -30,7 +30,7 @@ export function describeObjective(obj: ObjectiveType): string {
     case 'capture_type': return `Capture all enemy ${obj.pieceType}s`;
     case 'survive': return `Survive ${obj.turns} turns`;
     case 'capture_count': return `Capture ${obj.count} pieces`;
-    case 'reach_rank': return `Get a piece to row ${obj.row + 1}`;
+    case 'promote_pawn': return 'Get a pawn or king to the enemy back rank';
     case 'defeat_king': return `Defeat the enemy king (${obj.hp} HP)`;
   }
 }
@@ -46,11 +46,11 @@ export function isObjectiveComplete(
     case 'capture_type':
       return pieces.filter(p => p.owner === 'enemy' && p.type === obj.pieceType).length === 0;
     case 'survive':
-      return progress.turnsElapsed >= obj.turns;
+      return progress.turnsElapsed >= obj.turns || pieces.filter(p => p.owner === 'enemy').length === 0;
     case 'capture_count':
       return progress.capturedCount >= obj.count;
-    case 'reach_rank':
-      return pieces.some(p => p.owner === 'player' && p.type !== 'king' && p.position.row <= obj.row);
+    case 'promote_pawn':
+      return pieces.some(p => p.owner === 'player' && (p.type === 'pawn' || p.type === 'king') && p.position.row === 0);
     case 'defeat_king':
       return progress.enemyKingDefeated;
   }

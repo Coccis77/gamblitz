@@ -15,17 +15,26 @@ import { Position } from '../utils/types.js';
 export function computeAllIntents(pieces: readonly Piece[]): EnemyIntent[] {
   const enemies = pieces.filter(p => p.owner === 'enemy');
   const intents: EnemyIntent[] = [];
+  const claimedSquares = new Set<string>();
 
   for (const enemy of enemies) {
-    const intent = computeIntent(enemy, pieces);
-    if (intent) intents.push(intent);
+    const intent = computeIntent(enemy, pieces, claimedSquares);
+    if (intent) {
+      intents.push(intent);
+      claimedSquares.add(`${intent.move.to.row},${intent.move.to.col}`);
+    }
   }
 
   return intents;
 }
 
-function computeIntent(enemy: Piece, allPieces: readonly Piece[]): EnemyIntent | null {
-  const moves = getLegalMoves(enemy, allPieces);
+function computeIntent(enemy: Piece, allPieces: readonly Piece[], claimedSquares: ReadonlySet<string>): EnemyIntent | null {
+  const allMoves = getLegalMoves(enemy, allPieces);
+  // Exclude squares already claimed by other enemy intents (captures are still allowed — two enemies can target the same enemy piece)
+  const moves = allMoves.filter(m => {
+    if (m.capturedPieceId) return true; // captures always allowed
+    return !claimedSquares.has(`${m.to.row},${m.to.col}`);
+  });
   if (moves.length === 0) return null;
 
   // Priority 1: capture highest-value player piece
@@ -110,27 +119,31 @@ export function recalculateIntents(
 ): EnemyIntent[] {
   const enemies = pieces.filter(p => p.owner === 'enemy');
   const newIntents: EnemyIntent[] = [];
+  const claimedSquares = new Set<string>();
 
   for (const enemy of enemies) {
     const existing = currentIntents.find(i => i.pieceId === enemy.id);
     const legalMoves = getLegalMoves(enemy, pieces);
 
     if (existing) {
-      // Find the exact same move: same target square AND same capture status
-      const sameMove = legalMoves.find(
-        m => m.to.row === existing.move.to.row
-          && m.to.col === existing.move.to.col
-          && !!m.capturedPieceId === !!existing.move.capturedPieceId,
+      // Keep intent if the target square is still reachable and not claimed
+      const key = `${existing.move.to.row},${existing.move.to.col}`;
+      const sameTarget = legalMoves.find(
+        m => m.to.row === existing.move.to.row && m.to.col === existing.move.to.col,
       );
-      if (sameMove) {
-        newIntents.push({ pieceId: enemy.id, move: sameMove });
+      if (sameTarget && (!claimedSquares.has(key) || sameTarget.capturedPieceId)) {
+        newIntents.push({ pieceId: enemy.id, move: sameTarget });
+        claimedSquares.add(key);
         continue;
       }
     }
 
     // Original intent is no longer valid — recompute
-    const intent = computeIntent(enemy, pieces);
-    if (intent) newIntents.push(intent);
+    const intent = computeIntent(enemy, pieces, claimedSquares);
+    if (intent) {
+      newIntents.push(intent);
+      claimedSquares.add(`${intent.move.to.row},${intent.move.to.col}`);
+    }
   }
 
   return newIntents;

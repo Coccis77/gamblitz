@@ -124,21 +124,9 @@ export function drawHUD(cc: CanvasContext, state: GameState, level: LevelState, 
   const boardRight = boardOriginX + squareSize * BOARD_SIZE;
   const fontSize = Math.max(14, Math.floor(squareSize * 0.22));
 
-  // --- Row 1: level + turn ---
-  ctx.fillStyle = '#e0e0e0';
-  ctx.font = `bold ${fontSize}px sans-serif`;
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'bottom';
-
-  const row1Y = boardOriginY - 26;
-  ctx.fillText(
-    `${rank ? `R${rank} ` : ''}${level.template.levelType.toUpperCase()}: ${level.template.name}  |  Turn ${state.turnNumber}  |  ${state.phase === 'player_turn' ? 'YOUR TURN' : 'ENEMY TURN'}`,
-    boardOriginX, row1Y,
-  );
-
-  // --- Row 2: shared info bar ---
-  const row2Y = boardOriginY - 6;
-  drawInfoBar(ctx, boardOriginX, row2Y, boardRight - boardOriginX, fontSize, {
+  // --- Row 1: info bar (King HP, gold, army, artifacts, boss HP) ---
+  const row1Y = boardOriginY - 38;
+  drawInfoBar(ctx, boardOriginX, row1Y, boardRight - boardOriginX, fontSize, {
     kingHP: level.playerKingHP,
     gold: economy.gold,
     armyCount: level.playerArmy.length,
@@ -148,21 +136,35 @@ export function drawHUD(cc: CanvasContext, state: GameState, level: LevelState, 
     bossHP: level.enemyKingHP,
   });
 
-  // --- Bottom bar: objective + moves + end turn ---
-  const smallFont = Math.max(12, Math.floor(squareSize * 0.18));
-  ctx.fillStyle = '#ccc';
+  // --- Row 2: level/turn + objective + moves ---
+  const smallFont = Math.max(11, Math.floor(squareSize * 0.17));
   ctx.font = `${smallFont}px sans-serif`;
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'top';
-  ctx.fillText(
-    `Objective: ${level.objective.description}  |  Moves: ${state.movesRemaining}/${state.maxMovesPerTurn}`,
-    boardOriginX,
-    boardBottom + 6,
-  );
+  ctx.textBaseline = 'bottom';
 
-  // Second bottom line: selected piece modifiers OR owned artifacts
+  // Left: level info + objective
+  ctx.fillStyle = '#999';
+  ctx.textAlign = 'left';
+  const levelTag = `${rank ? `R${rank}` : ''} ${level.template.levelType.toUpperCase()}`;
+  ctx.fillStyle = '#777';
+  ctx.font = `bold ${smallFont}px sans-serif`;
+  ctx.fillText(levelTag, boardOriginX, boardOriginY - 6);
+  const tagW = ctx.measureText(levelTag).width;
+
+  ctx.fillStyle = '#bbb';
+  ctx.font = `${smallFont}px sans-serif`;
+  ctx.fillText(`  ${level.objective.description}`, boardOriginX + tagW, boardOriginY - 6);
+
+  // Right: turn + moves
+  ctx.fillStyle = '#999';
+  ctx.textAlign = 'right';
+  ctx.font = `bold ${smallFont}px sans-serif`;
+  const turnPhase = state.phase === 'player_turn' ? 'YOUR TURN' : 'ENEMY';
+  ctx.fillText(`T${state.turnNumber} ${turnPhase}  Moves: ${state.movesRemaining}/${state.maxMovesPerTurn}`, boardRight, boardOriginY - 6);
+
+  // Bottom line: selected piece modifiers OR owned artifacts
   const line2Font = Math.max(11, Math.floor(squareSize * 0.16));
-  const line2Y = boardBottom + 6 + smallFont + 4;
+  const btnWidth = squareSize * 2;
+  const line2Y = boardBottom + 8;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
 
@@ -198,10 +200,9 @@ export function drawHUD(cc: CanvasContext, state: GameState, level: LevelState, 
   }
 
   // End Turn button
-  const btnWidth = squareSize * 2;
-  const btnHeight = 36;
+  const btnHeight = 32;
   const btnX = boardRight - btnWidth;
-  const btnY = boardBottom + 8;
+  const btnY = boardBottom + line2Font + 14;
 
   endTurnButton = { x: btnX, y: btnY, width: btnWidth, height: btnHeight };
 
@@ -324,6 +325,68 @@ export function drawGameOver(cc: CanvasContext, stats?: RunStats): void {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText('Restart', btnX + btnWidth / 2, btnY + btnHeight / 2);
+}
+
+export function drawVictory(cc: CanvasContext, stats: RunStats): void {
+  const { ctx, squareSize, boardOriginX, boardOriginY } = cc;
+  const boardPixels = squareSize * BOARD_SIZE;
+  const centerX = boardOriginX + boardPixels / 2;
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+  ctx.fillRect(boardOriginX, boardOriginY, boardPixels, boardPixels);
+
+  // Glow
+  const glow = ctx.createRadialGradient(centerX, boardOriginY + boardPixels * 0.3, 0, centerX, boardOriginY + boardPixels * 0.3, boardPixels * 0.5);
+  glow.addColorStop(0, 'rgba(240, 192, 64, 0.15)');
+  glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(boardOriginX, boardOriginY, boardPixels, boardPixels);
+
+  const bigFont = Math.floor(squareSize * 0.5);
+  ctx.fillStyle = '#f0c040';
+  ctx.font = `bold ${bigFont}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('VICTORY!', centerX, boardOriginY + boardPixels * 0.2);
+
+  const subFont = Math.floor(squareSize * 0.25);
+  ctx.fillStyle = '#ccc';
+  ctx.font = `${subFont}px sans-serif`;
+  ctx.fillText('You defeated the Dark King!', centerX, boardOriginY + boardPixels * 0.32);
+
+  // Stats
+  const statFont = Math.floor(squareSize * 0.22);
+  ctx.font = `${statFont}px sans-serif`;
+  ctx.fillStyle = '#aaa';
+  const startY = boardOriginY + boardPixels * 0.42;
+  const lineH = statFont + 8;
+  ctx.fillText(`Levels cleared: ${stats.levelsCleared}`, centerX, startY);
+  ctx.fillText(`Pieces captured: ${stats.totalCaptures}`, centerX, startY + lineH);
+  ctx.fillText(`Gold earned: ${stats.totalGoldEarned}`, centerX, startY + lineH * 2);
+  if (stats.seed !== undefined) {
+    ctx.fillStyle = '#888';
+    ctx.font = `${Math.floor(statFont * 0.8)}px sans-serif`;
+    ctx.fillText(`Seed: ${stats.seed}`, centerX, startY + lineH * 3 + 4);
+  }
+
+  // Restart button
+  const btnWidth = squareSize * 2.5;
+  const btnHeight = 44;
+  const btnX = centerX - btnWidth / 2;
+  const btnY = boardOriginY + boardPixels * 0.75;
+
+  restartButton = { x: btnX, y: btnY, width: btnWidth, height: btnHeight };
+
+  ctx.fillStyle = '#4a90d9';
+  ctx.beginPath();
+  ctx.roundRect(btnX, btnY, btnWidth, btnHeight, 6);
+  ctx.fill();
+
+  ctx.fillStyle = '#fff';
+  ctx.font = `bold ${Math.floor(squareSize * 0.25)}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('Play Again', btnX + btnWidth / 2, btnY + btnHeight / 2);
 }
 
 export function isInsideButton(btn: ButtonRect, x: number, y: number): boolean {

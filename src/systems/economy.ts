@@ -17,6 +17,6 @@ export function spendGold(eco: Economy, amount: number): boolean {
 }
 
 // Rewards
-export const GOLD_PER_CAPTURE = 1;
-export const GOLD_LEVEL_COMPLETE = 5;
-export const GOLD_BOSS_COMPLETE = 10;
+export const GOLD_PER_CAPTURE = 2;
+export const GOLD_LEVEL_COMPLETE = 7;
+export const GOLD_BOSS_COMPLETE = 15;

@@ -14,30 +14,47 @@ export function drawEventScreen(cc: CanvasContext, event: GameEvent): void {
   const boardPixels = squareSize * BOARD_SIZE;
   const centerX = boardOriginX + boardPixels / 2;
 
-  // Background
-  ctx.fillStyle = '#1a1a2e';
+  // Background with gradient
+  const bgGrad = ctx.createLinearGradient(0, 0, 0, cc.canvas.height);
+  bgGrad.addColorStop(0, '#1a1a2e');
+  bgGrad.addColorStop(0.5, '#1e1530');
+  bgGrad.addColorStop(1, '#0e0e1a');
+  ctx.fillStyle = bgGrad;
   ctx.fillRect(0, 0, cc.canvas.width, cc.canvas.height);
 
-  // Event icon
+  // Event icon with glow
   const iconY = boardOriginY + boardPixels * 0.15;
   const iconSize = Math.floor(squareSize * 0.7);
+
+  // Glow
+  const glow = ctx.createRadialGradient(centerX, iconY, iconSize * 0.5, centerX, iconY, iconSize * 1.5);
+  glow.addColorStop(0, 'rgba(240, 192, 64, 0.15)');
+  glow.addColorStop(1, 'rgba(240, 192, 64, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, cc.canvas.width, cc.canvas.height);
+
   ctx.fillStyle = '#2a2a4e';
   ctx.beginPath();
   ctx.arc(centerX, iconY, iconSize, 0, Math.PI * 2);
   ctx.fill();
+  ctx.strokeStyle = '#f0c040';
+  ctx.lineWidth = 3;
+  ctx.stroke();
   ctx.fillStyle = '#f0c040';
-  ctx.font = `${Math.floor(iconSize)}px sans-serif`;
+  ctx.font = `bold ${Math.floor(iconSize)}px sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText('?', centerX, iconY);
 
   // Title
   const titleFont = Math.floor(squareSize * 0.4);
-  ctx.fillStyle = '#e0e0e0';
   ctx.font = `bold ${titleFont}px sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
   const titleY = iconY + iconSize + 16;
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.fillText(event.title, centerX + 1, titleY + 1);
+  ctx.fillStyle = '#f0e0c0';
   ctx.fillText(event.title, centerX, titleY);
 
   // Description
