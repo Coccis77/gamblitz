@@ -75,6 +75,30 @@ export const NORMAL_TEMPLATES: LevelTemplate[] = [
     ],
     objective: { kind: 'capture_all' },
   },
+  {
+    name: 'Rook Alley',
+    levelType: 'normal',
+    enemies: [
+      { type: 'rook', position: { row: 0, col: 2 } },
+      { type: 'pawn', position: { row: 1, col: 0 } },
+      { type: 'pawn', position: { row: 1, col: 5 } },
+      { type: 'pawn', position: { row: 2, col: 2 } },
+    ],
+    objective: { kind: 'capture_all' },
+  },
+  {
+    name: 'Pawn Rush',
+    levelType: 'normal',
+    enemies: [
+      { type: 'pawn', position: { row: 2, col: 0 } },
+      { type: 'pawn', position: { row: 2, col: 1 } },
+      { type: 'pawn', position: { row: 2, col: 2 } },
+      { type: 'pawn', position: { row: 2, col: 3 } },
+      { type: 'pawn', position: { row: 2, col: 4 } },
+      { type: 'pawn', position: { row: 2, col: 5 } },
+    ],
+    objective: { kind: 'survive', turns: 4 },
+  },
 ];
 
 // ─── Elite templates ─────────────────────────────────────
@@ -131,6 +155,18 @@ export const ELITE_TEMPLATES: LevelTemplate[] = [
       { type: 'pawn', position: { row: 2, col: 3 } },
     ],
     objective: { kind: 'capture_count', count: 5 },
+  },
+  {
+    name: 'Twin Towers',
+    levelType: 'elite',
+    enemies: [
+      { type: 'rook', position: { row: 0, col: 0 } },
+      { type: 'rook', position: { row: 0, col: 5 } },
+      { type: 'queen', position: { row: 0, col: 3 } },
+      { type: 'pawn', position: { row: 1, col: 1 } },
+      { type: 'pawn', position: { row: 1, col: 4 } },
+    ],
+    objective: { kind: 'survive', turns: 8 },
   },
 ];
 

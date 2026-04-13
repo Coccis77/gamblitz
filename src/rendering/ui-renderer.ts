@@ -17,6 +17,20 @@ let endTurnButton: ButtonRect = { x: 0, y: 0, width: 0, height: 0 };
 let nextLevelButton: ButtonRect = { x: 0, y: 0, width: 0, height: 0 };
 let restartButton: ButtonRect = { x: 0, y: 0, width: 0, height: 0 };
 
+interface ArtifactHitBox {
+  x: number;
+  width: number;
+  y: number;
+  height: number;
+  artifactId: string;
+}
+
+let artifactHitBoxes: ArtifactHitBox[] = [];
+
+export function getArtifactHitBoxes(): readonly ArtifactHitBox[] {
+  return artifactHitBoxes;
+}
+
 export function getEndTurnButton(): ButtonRect { return endTurnButton; }
 export function getNextLevelButton(): ButtonRect { return nextLevelButton; }
 export function getRestartButton(): ButtonRect { return restartButton; }
@@ -150,9 +164,26 @@ export function drawHUD(cc: CanvasContext, state: GameState, level: LevelState, 
   ctx.fillText(levelTag, boardOriginX, boardOriginY - 6);
   const tagW = ctx.measureText(levelTag).width;
 
+  // Objective progress indicator
+  const objType = level.objective.type;
+  let progressStr = '';
+  if (objType.kind === 'capture_all') {
+    const remaining = state.pieces.filter((p: Piece) => p.owner === 'enemy').length;
+    progressStr = ` (${remaining} left)`;
+  } else if (objType.kind === 'capture_type') {
+    const remaining = state.pieces.filter((p: Piece) => p.owner === 'enemy' && p.type === objType.pieceType).length;
+    progressStr = ` (${remaining} left)`;
+  } else if (objType.kind === 'survive') {
+    progressStr = ` (${level.progress.turnsElapsed}/${objType.turns})`;
+  } else if (objType.kind === 'capture_count') {
+    progressStr = ` (${level.progress.capturedCount}/${objType.count})`;
+  } else if (objType.kind === 'defeat_king' && level.enemyKingHP) {
+    progressStr = ` (${level.enemyKingHP.current}HP left)`;
+  }
+
   ctx.fillStyle = '#bbb';
   ctx.font = `${smallFont}px sans-serif`;
-  ctx.fillText(`  ${level.objective.description}`, boardOriginX + tagW, boardOriginY - 6);
+  ctx.fillText(`  ${level.objective.description}${progressStr}`, boardOriginX + tagW, boardOriginY - 6);
 
   // Right: turn + moves
   ctx.fillStyle = '#999';
@@ -169,6 +200,7 @@ export function drawHUD(cc: CanvasContext, state: GameState, level: LevelState, 
   ctx.textBaseline = 'top';
 
   if (selectedPiece) {
+    artifactHitBoxes = [];
     const pieceName = selectedPiece.type.charAt(0).toUpperCase() + selectedPiece.type.slice(1);
     const playerMods = selectedPiece.modifiers.filter(m => !m.id.startsWith('artifact_'));
 
@@ -189,12 +221,21 @@ export function drawHUD(cc: CanvasContext, state: GameState, level: LevelState, 
     const RARITY_COLORS: Record<string, string> = { common: '#ccc', uncommon: '#4a9fd9', rare: '#a855f7', legendary: '#f0c040' };
     ctx.font = `${line2Font}px sans-serif`;
     let ax = boardOriginX;
+    artifactHitBoxes = [];
     for (const art of level.artifactSlots.artifacts) {
       const col = RARITY_COLORS[art.rarity] ?? '#ccc';
       ctx.fillStyle = col;
       const txt = `\u2726${art.name}`;
+      const txtWidth = ctx.measureText(txt).width;
+      artifactHitBoxes.push({
+        x: ax,
+        width: txtWidth,
+        y: line2Y - 2,
+        height: line2Font + 4,
+        artifactId: art.id,
+      });
       ctx.fillText(txt, ax, line2Y);
-      ax += ctx.measureText(txt).width + 10;
+      ax += txtWidth + 10;
       if (ax > boardRight - 20) break;
     }
   }
@@ -262,8 +303,47 @@ function drawOverlay(
   ctx.fillText(btnLabel, btnX + btnWidth / 2, btnY + btnHeight / 2);
 }
 
-export function drawLevelComplete(cc: CanvasContext): void {
-  drawOverlay(cc, 'LEVEL COMPLETE', '#4adf4a', 'Next Level', 'next');
+export function drawLevelComplete(cc: CanvasContext, goldEarned: number, piecesCaptured: number): void {
+  const { ctx, squareSize, boardOriginX, boardOriginY } = cc;
+  const boardPixels = squareSize * BOARD_SIZE;
+  const centerX = boardOriginX + boardPixels / 2;
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+  ctx.fillRect(boardOriginX, boardOriginY, boardPixels, boardPixels);
+
+  const bigFont = Math.floor(squareSize * 0.5);
+  ctx.fillStyle = '#4adf4a';
+  ctx.font = `bold ${bigFont}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('LEVEL COMPLETE', centerX, boardOriginY + boardPixels * 0.28);
+
+  // Stats
+  const statFont = Math.floor(squareSize * 0.25);
+  ctx.font = `${statFont}px sans-serif`;
+  ctx.fillStyle = '#f0c040';
+  ctx.fillText(`+${goldEarned}g earned`, centerX, boardOriginY + boardPixels * 0.42);
+  ctx.fillStyle = '#ccc';
+  ctx.fillText(`${piecesCaptured} pieces captured`, centerX, boardOriginY + boardPixels * 0.50);
+
+  // Next Level button
+  const btnWidth = squareSize * 2.5;
+  const btnHeight = 44;
+  const btnX = centerX - btnWidth / 2;
+  const btnY = boardOriginY + boardPixels * 0.62;
+
+  nextLevelButton = { x: btnX, y: btnY, width: btnWidth, height: btnHeight };
+
+  ctx.fillStyle = '#4a90d9';
+  ctx.beginPath();
+  ctx.roundRect(btnX, btnY, btnWidth, btnHeight, 6);
+  ctx.fill();
+
+  ctx.fillStyle = '#fff';
+  ctx.font = `bold ${Math.floor(squareSize * 0.25)}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('Next Level', btnX + btnWidth / 2, btnY + btnHeight / 2);
 }
 
 export interface RunStats {

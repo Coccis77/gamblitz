@@ -1,7 +1,7 @@
 import { PieceType } from '../core/piece.js';
 import { ArtifactDef } from '../core/artifact.js';
 import { ModifierDef } from '../core/modifier.js';
-import { ALL_ARTIFACTS } from '../data/artifacts.js';
+import { ALL_ARTIFACTS, ARTIFACT_UPGRADES, ArtifactUpgrade } from '../data/artifacts.js';
 import { ALL_MODIFIERS } from '../data/modifiers.js';
 import { RngFn, pick } from '../utils/rng.js';
 
@@ -11,7 +11,8 @@ export type ShopItemKind =
   | { kind: 'extra_move' }
   | { kind: 'army_slot' }
   | { kind: 'artifact'; artifact: ArtifactDef }
-  | { kind: 'modifier'; modifier: ModifierDef };
+  | { kind: 'modifier'; modifier: ModifierDef }
+  | { kind: 'artifact_upgrade'; upgrade: ArtifactUpgrade };
 
 export interface ShopItem {
   type: ShopItemKind;
@@ -83,7 +84,7 @@ const ARMY_SLOT_ITEM: ShopItem = {
 };
 
 function pickArtifact(rng: RngFn, ownedIds: ReadonlySet<string>): ShopItem | null {
-  const available = ALL_ARTIFACTS.filter(a => !ownedIds.has(a.id));
+  const available = ALL_ARTIFACTS.filter(a => !ownedIds.has(a.id) && !a.isStarter);
   if (available.length === 0) return null;
 
   // Weight by rarity: common more likely
@@ -95,6 +96,22 @@ function pickArtifact(rng: RngFn, ownedIds: ReadonlySet<string>): ShopItem | nul
   }
   const chosen = pick(weighted, rng);
   return chosen ? makeArtifactItem(chosen) : null;
+}
+
+function pickArtifactUpgrade(rng: RngFn, ownedArtifactIds: ReadonlySet<string>): ShopItem | null {
+  const available = ARTIFACT_UPGRADES.filter(u =>
+    ownedArtifactIds.has(u.baseArtifactId) && !ownedArtifactIds.has(u.upgraded.id)
+  );
+  if (available.length === 0) return null;
+  const chosen = pick(available, rng);
+  if (!chosen) return null;
+  return {
+    type: { kind: 'artifact_upgrade', upgrade: chosen },
+    name: '\u2B06 ' + chosen.upgraded.name,
+    description: chosen.upgraded.description,
+    cost: chosen.cost,
+    rarity: chosen.upgraded.rarity,
+  };
 }
 
 function pickModifierForArmy(rng: RngFn, ownedPieceTypes: ReadonlySet<PieceType>): ShopItem | null {
@@ -125,12 +142,17 @@ export function generateShopItems(
     }
   }
 
-  // Slot 2: artifact, heal, or army slot
+  // Slot 2: artifact upgrade, artifact, heal, or army slot
   const roll2 = rng();
   if (roll2 < 0.4) {
-    const art = pickArtifact(rng, ownedArtifactIds);
-    if (art) items.push(art);
-    else items.push({ ...HEAL_ITEM });
+    const upgrade = pickArtifactUpgrade(rng, ownedArtifactIds);
+    if (upgrade) {
+      items.push(upgrade);
+    } else {
+      const art = pickArtifact(rng, ownedArtifactIds);
+      if (art) items.push(art);
+      else items.push({ ...HEAL_ITEM });
+    }
   } else if (roll2 < 0.7) {
     items.push({ ...HEAL_ITEM });
   } else if (armySlots < MAX_ARMY_SLOTS) {

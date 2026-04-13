@@ -1,4 +1,5 @@
 import { RngFn, pick } from '../utils/rng.js';
+import { PieceType } from '../core/piece.js';
 
 export type LevelType = 'normal' | 'elite' | 'boss';
 
@@ -77,10 +78,18 @@ export function getDifficultyScale(rank: number): {
   extraEnemies: number;
   bossHP: number;
   enemyUpgradeChance: number;
+  pawnToKnightChance: number;
+  pawnToBishopChance: number;
+  pawnToRookChance: number;
+  extraPieceTypes: PieceType[];
 } {
   return {
-    extraEnemies: Math.min(rank - 1, 4),  // +0, +1, +2, +3, +4
-    bossHP: 2 + rank,                      // 3, 4, 5, ...
-    enemyUpgradeChance: Math.min(0.1 * (rank - 1), 0.5), // 0%, 10%, 20%, ... up to 50%
+    extraEnemies: Math.min(rank - 1, 6),
+    bossHP: 2 + rank,
+    enemyUpgradeChance: Math.min(0.15 * (rank - 1), 0.6),
+    pawnToKnightChance: Math.min(0.1 * rank, 0.4),
+    pawnToBishopChance: Math.min(0.08 * rank, 0.3),
+    pawnToRookChance: rank >= 3 ? Math.min(0.05 * (rank - 2), 0.2) : 0,
+    extraPieceTypes: rank >= 4 ? ['knight', 'bishop'] : ['pawn'],
   };
 }

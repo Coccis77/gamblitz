@@ -106,20 +106,27 @@ function spawnEnemies(template: LevelTemplate, rank: number, rng: RngFn): Piece[
 
   // Upgrade some pawns to stronger pieces based on rank
   for (const piece of base) {
-    if (piece.type === 'pawn' && rng() < scale.enemyUpgradeChance) {
-      const upgrades: PieceType[] = ['knight', 'bishop'];
-      piece.type = pick(upgrades, rng) ?? 'knight';
+    if (piece.type === 'pawn') {
+      const roll = rng();
+      if (roll < scale.pawnToRookChance) {
+        piece.type = 'rook';
+      } else if (roll < scale.pawnToRookChance + scale.pawnToBishopChance) {
+        piece.type = 'bishop';
+      } else if (roll < scale.pawnToRookChance + scale.pawnToBishopChance + scale.pawnToKnightChance) {
+        piece.type = 'knight';
+      }
     }
   }
 
-  // Add extra enemy pawns for higher ranks
+  // Add extra enemies for higher ranks
   const occupied = new Set(base.map(p => `${p.position.row},${p.position.col}`));
   let added = 0;
   for (let col = 0; col < BOARD_SIZE && added < scale.extraEnemies; col++) {
     for (let row = 1; row <= 2 && added < scale.extraEnemies; row++) {
       const key = `${row},${col}`;
       if (!occupied.has(key)) {
-        base.push(createPiece('pawn', 'enemy', { row, col }));
+        const extraType = pick(scale.extraPieceTypes, rng) ?? 'pawn';
+        base.push(createPiece(extraType, 'enemy', { row, col }));
         occupied.add(key);
         added++;
       }

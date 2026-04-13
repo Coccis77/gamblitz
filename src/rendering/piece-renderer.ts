@@ -1,5 +1,6 @@
 import { Piece, PIECE_LABELS } from '../core/piece.js';
-import { CanvasContext, boardToPixel } from './canvas.js';
+import { CanvasContext } from './canvas.js';
+import { getAnimatedPosition } from './animation.js';
 
 const PLAYER_COLOR = '#4a90d9';
 const PLAYER_GRADIENT_TOP = '#5aa8f0';
@@ -17,8 +18,15 @@ export function drawPieces(cc: CanvasContext, pieces: readonly Piece[]): void {
 }
 
 function drawPiece(cc: CanvasContext, piece: Piece): void {
+  // Don't draw pieces that are off-board (e.g. king waiting for teleport)
+  if (piece.position.row < 0 || piece.position.col < 0) return;
+
   const { ctx, squareSize } = cc;
-  const { x, y } = boardToPixel(cc, piece.position);
+  const animPos = getAnimatedPosition(piece.id);
+  const drawCol = animPos ? animPos.col : piece.position.col;
+  const drawRow = animPos ? animPos.row : piece.position.row;
+  const x = cc.boardOriginX + drawCol * squareSize;
+  const y = cc.boardOriginY + drawRow * squareSize;
   const centerX = x + squareSize / 2;
   const centerY = y + squareSize / 2;
   const radius = squareSize * PIECE_RADIUS_RATIO;

@@ -1,11 +1,11 @@
 import { initCanvas, resizeCanvas, CanvasContext, pixelToBoard } from './rendering/canvas.js';
-import { drawBoard } from './rendering/board-renderer.js';
+import { drawBoard, computeThreatSquares } from './rendering/board-renderer.js';
 import { drawPieces } from './rendering/piece-renderer.js';
-import { drawIntents } from './rendering/intent-renderer.js';
+import { drawIntents, drawIntentBadges } from './rendering/intent-renderer.js';
 import {
   drawHUD, drawLevelComplete, drawGameOver, drawVictory,
   getEndTurnButton, getNextLevelButton, getRestartButton, isInsideButton,
-  ButtonRect, RunStats,
+  ButtonRect, RunStats, getArtifactHitBoxes,
 } from './rendering/ui-renderer.js';
 import { drawShop, getShopCards, getArtifactRects, getContinueButton, getCancelButton, shopGridHitTest, PlacementState, ModifierApplyState, getSelectedPieceId, setSelectedPieceId } from './rendering/shop-renderer.js';
 import { addArtifact, canAddArtifact, removeArtifact, hasArtifactEffect, getArtifactEffectValue } from './core/artifact.js';
@@ -22,7 +22,7 @@ import {
   executeMove, computeEnPassant,
 } from './input/click-handler.js';
 import { computeAllIntents, recalculateIntents } from './ai/intent.js';
-import { handleKingHit } from './systems/king-hp.js';
+import { handleKingHit, KingHitResult } from './systems/king-hp.js';
 import { RunState, createRunState, advanceRun, hasMutation } from './systems/run.js';
 import { GameEvent, EventEffect, rollEvent } from './systems/events.js';
 import { drawEventScreen, getEventOptionButtons } from './rendering/event-renderer.js';
@@ -34,6 +34,7 @@ import { ALL_ARTIFACTS } from './data/artifacts.js';
 import { drawTutorialScreen, getTutorialNextButton, getTutorialSkipButton, getTutorialPageCount } from './rendering/tutorial-renderer.js';
 import { startFadeOut, isFading, updateFade, drawFade } from './rendering/transition.js';
 import { addFlash, updateEffects, hasActiveEffects, drawEffects } from './rendering/effects.js';
+import { startMoveAnimation, updateAnimation, isAnimating } from './rendering/animation.js';
 import { createRng, RngFn } from './utils/rng.js';
 import {
   LevelState, createLevel, buildGameStateForLevel, checkLevelComplete,
@@ -44,7 +45,7 @@ import {
   GOLD_PER_CAPTURE, GOLD_LEVEL_COMPLETE, GOLD_BOSS_COMPLETE,
 } from './systems/economy.js';
 import { ShopItem, generateShopItems, generateReplacementItem, MAX_ARMY_SLOTS } from './systems/shop.js';
-import { BOARD_SIZE } from './utils/types.js';
+import { BOARD_SIZE, Position } from './utils/types.js';
 
 type Screen = 'title' | 'tutorial' | 'draft' | 'level' | 'event' | 'shop';
 
@@ -66,6 +67,9 @@ let currentEvent: GameEvent | null = null;
 let promotionRecords: PromotionRecord[] = [];
 let tutorialPage = 0;
 let draftArtifacts: import('./core/artifact.js').ArtifactDef[] = [];
+let hoveredArtifact: ArtifactDef | null = null;
+let teleportChoices: Position[] | null = null; // squares player can teleport king to
+let teleportKingId: string | null = null;
 
 // ─── Level management ────────────────────────────────────
 
@@ -79,8 +83,9 @@ function startNewRun(seed?: number): void {
   selection = createSelectionState();
   promotionRecords = [];
 
-  // Pick 2 random artifacts for draft
-  const shuffled = [...ALL_ARTIFACTS].sort(() => rng() - 0.5);
+  // Pick 2 random artifacts for draft (starters only)
+  const starters = ALL_ARTIFACTS.filter(a => a.isStarter);
+  const shuffled = [...starters].sort(() => rng() - 0.5);
   draftArtifacts = shuffled.slice(0, 2);
   screen = 'draft';
 }
@@ -194,6 +199,10 @@ function isItemUsable(item: ShopItem): boolean {
     );
     if (!canApplyToAny) return false;
   }
+  if (item.type.kind === 'artifact_upgrade') {
+    const hasBase = level.artifactSlots.artifacts.some(a => a.id === item.type.upgrade.baseArtifactId);
+    if (!hasBase) return false;
+  }
   return true;
 }
 
@@ -244,6 +253,17 @@ function buyItem(item: ShopItem, index: number): void {
       pendingShopIndex = index;
       break;
     }
+    case 'artifact_upgrade': {
+      const upgrade = item.type.upgrade;
+      // Remove the base artifact
+      const baseIdx = level.artifactSlots.artifacts.findIndex(a => a.id === upgrade.baseArtifactId);
+      if (baseIdx !== -1) {
+        level.artifactSlots.artifacts.splice(baseIdx, 1);
+      }
+      addArtifact(level.artifactSlots, upgrade.upgraded);
+      replaceShopItem(index);
+      break;
+    }
   }
 }
 
@@ -258,6 +278,7 @@ function performMove(move: Move): boolean {
       if (hp) {
         const attacker = state.pieces.find(p => positionEquals(p.position, move.from));
         if (attacker) {
+          startMoveAnimation(attacker.id, move.from, move.to);
           attacker.position = { ...move.to };
           attacker.hasMoved = true;
           attacker.hasCapturedThisTurn = true;
@@ -275,14 +296,17 @@ function performMove(move: Move): boolean {
         }
 
         if (!dodged) {
-          const survived = handleKingHit(target, hp, state.pieces, rng);
+          const result = handleKingHit(target, hp, state.pieces, rng);
           addFlash(move.to, 'rgb(255, 200, 50)');
-          if (!survived) {
+          if (result.outcome === 'defeated' || result.outcome === 'no_safe_square') {
             if (target.owner === 'player') {
               level.gameOver = true;
             } else {
               level.progress.enemyKingDefeated = true;
             }
+          } else if (result.outcome === 'choose_teleport') {
+            teleportChoices = result.squares;
+            teleportKingId = target.id;
           }
         }
 
@@ -293,6 +317,10 @@ function performMove(move: Move): boolean {
     }
   }
 
+  const movingPiece = state.pieces.find(p => positionEquals(p.position, move.from));
+  if (movingPiece) {
+    startMoveAnimation(movingPiece.id, move.from, move.to);
+  }
   const hadCapture = !!move.capturedPieceId;
   executeMove(move, state.pieces);
   if (hadCapture) {
@@ -365,12 +393,39 @@ function render(): void {
     return;
   }
 
-  drawBoard(cc, selection.selectedPiece?.position ?? null, selection.legalMoves);
+  const threats = computeThreatSquares(state.pieces);
+  drawBoard(cc, selection.selectedPiece?.position ?? null, selection.legalMoves, threats);
   drawEffects(cc.ctx, cc.boardOriginX, cc.boardOriginY, cc.squareSize);
   if (!hasMutation(run, 'fog_of_war')) {
     drawIntents(cc, state.enemyIntents, state.pieces);
   }
   drawPieces(cc, state.pieces);
+  if (!hasMutation(run, 'fog_of_war')) {
+    drawIntentBadges(cc, state.enemyIntents, state.pieces);
+  }
+
+  // Teleport choice highlights
+  if (teleportChoices) {
+    const { ctx, squareSize, boardOriginX, boardOriginY } = cc;
+    const pulse = (Math.sin(Date.now() / 250) + 1) / 2;
+    for (const sq of teleportChoices) {
+      const sx = boardOriginX + sq.col * squareSize;
+      const sy = boardOriginY + sq.row * squareSize;
+      const alpha = 0.25 + pulse * 0.2;
+      ctx.fillStyle = `rgba(80, 160, 255, ${alpha})`;
+      ctx.fillRect(sx, sy, squareSize, squareSize);
+      ctx.strokeStyle = `rgba(100, 180, 255, ${alpha + 0.2})`;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(sx + 1, sy + 1, squareSize - 2, squareSize - 2);
+    }
+    // Label
+    ctx.fillStyle = '#8cf';
+    ctx.font = `bold ${Math.floor(squareSize * 0.2)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('Choose where your King teleports', boardOriginX + squareSize * 3, boardOriginY - 4);
+  }
+
   drawHUD(cc, state, level, economy, run.rank, selection.selectedPiece);
 
   const runStats: RunStats = {
@@ -383,7 +438,43 @@ function render(): void {
 
   if (level.gameOver) drawGameOver(cc, runStats);
   else if (level.victory) drawVictory(cc, runStats);
-  else if (level.completed) drawLevelComplete(cc);
+  else if (level.completed) drawLevelComplete(cc, level.progress.capturedCount * 2, level.progress.capturedCount);
+
+  // Artifact tooltip
+  if (hoveredArtifact && screen === 'level') {
+    const tooltipFont = Math.max(12, Math.floor(cc.squareSize * 0.18));
+    const padding = 8;
+    const name = hoveredArtifact.name;
+    const desc = hoveredArtifact.description;
+    cc.ctx.font = `bold ${tooltipFont}px sans-serif`;
+    const nameW = cc.ctx.measureText(name).width;
+    cc.ctx.font = `${tooltipFont}px sans-serif`;
+    const descW = cc.ctx.measureText(desc).width;
+    const boxW = Math.max(nameW, descW) + padding * 2;
+    const boxH = tooltipFont * 2 + padding * 2 + 4;
+
+    // Position above the bottom bar
+    const boxX = cc.boardOriginX;
+    const boxY = cc.boardOriginY + cc.squareSize * BOARD_SIZE - boxH - 4;
+
+    cc.ctx.fillStyle = 'rgba(20, 20, 40, 0.92)';
+    cc.ctx.beginPath();
+    cc.ctx.roundRect(boxX, boxY, boxW, boxH, 6);
+    cc.ctx.fill();
+    cc.ctx.strokeStyle = '#555';
+    cc.ctx.lineWidth = 1;
+    cc.ctx.stroke();
+
+    cc.ctx.fillStyle = '#f0c040';
+    cc.ctx.font = `bold ${tooltipFont}px sans-serif`;
+    cc.ctx.textAlign = 'left';
+    cc.ctx.textBaseline = 'top';
+    cc.ctx.fillText(name, boxX + padding, boxY + padding);
+
+    cc.ctx.fillStyle = '#ccc';
+    cc.ctx.font = `${tooltipFont}px sans-serif`;
+    cc.ctx.fillText(desc, boxX + padding, boxY + padding + tooltipFont + 4);
+  }
 
   // Fade overlay on top of everything
   drawFade(cc.ctx, cc.canvas.width, cc.canvas.height);
@@ -411,8 +502,12 @@ function executeEnemyTurn(): void {
       for (const _ of promoted) {
         const playerKing = state.pieces.find(p => p.owner === 'player' && p.type === 'king');
         if (playerKing) {
-          const survived = handleKingHit(playerKing, level.playerKingHP, state.pieces, rng);
-          if (!survived) { level.gameOver = true; render(); return; }
+          const hitResult = handleKingHit(playerKing, level.playerKingHP, state.pieces, rng);
+          if (hitResult.outcome === 'defeated' || hitResult.outcome === 'no_safe_square') { level.gameOver = true; render(); return; }
+          if (hitResult.outcome === 'choose_teleport') {
+            teleportChoices = hitResult.squares;
+            teleportKingId = playerKing.id;
+          }
         }
       }
 
@@ -592,6 +687,7 @@ function onShopClick(x: number, y: number): void {
 
 function onClick(e: MouseEvent): void {
   if (isFading()) return;
+  if (isAnimating()) return;
   const rect = cc.canvas.getBoundingClientRect();
   const x = e.clientX - rect.left;
   const y = e.clientY - rect.top;
@@ -692,6 +788,21 @@ function onClick(e: MouseEvent): void {
     return;
   }
 
+  // Handle teleport choice
+  if (teleportChoices && teleportKingId) {
+    const pos = pixelToBoard(cc, x, y);
+    if (pos && teleportChoices.some(s => s.row === pos.row && s.col === pos.col)) {
+      const king = state.pieces.find(p => p.id === teleportKingId);
+      if (king) {
+        king.position = { ...pos };
+      }
+      teleportChoices = null;
+      teleportKingId = null;
+      render();
+    }
+    return;
+  }
+
   if (state.phase !== 'player_turn') return;
 
   const pos = pixelToBoard(cc, x, y);
@@ -748,8 +859,9 @@ function fadeToRestart(): void {
 // ─── Game loop ───────────────────────────────────────────
 
 function gameLoop(): void {
+  const animating = updateAnimation();
   updateEffects();
-  if (isFading() || hasActiveEffects()) {
+  if (isFading() || hasActiveEffects() || animating || teleportChoices) {
     if (isFading()) updateFade();
     render();
   }
@@ -763,6 +875,72 @@ function init(): void {
   screen = 'title';
 
   cc.canvas.addEventListener('click', onClick);
+
+  window.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (isFading()) return;
+
+    // Space or Enter = End Turn (during level, player turn)
+    if ((e.code === 'Space' || e.code === 'Enter') && screen === 'level') {
+      if (state.phase === 'player_turn' && !level.completed && !level.gameOver && !level.victory) {
+        e.preventDefault();
+        executeEnemyTurn();
+      }
+      return;
+    }
+
+    // Escape = deselect piece
+    if (e.code === 'Escape' && screen === 'level') {
+      clearSelection(selection);
+      render();
+      return;
+    }
+  });
+
+  cc.canvas.addEventListener('mousemove', (e: MouseEvent) => {
+    if (screen !== 'level') {
+      cc.canvas.style.cursor = 'default';
+      return;
+    }
+    const rect = cc.canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const pos = pixelToBoard(cc, x, y);
+
+    if (pos) {
+      const piece = state.pieces.find(
+        (p: Piece) => p.position.row === pos.row && p.position.col === pos.col
+      );
+      if (piece && piece.owner === 'player' && state.phase === 'player_turn') {
+        cc.canvas.style.cursor = 'pointer';
+      } else if (selection.selectedPiece && selection.legalMoves.some(
+        (m: Move) => m.to.row === pos.row && m.to.col === pos.col
+      )) {
+        cc.canvas.style.cursor = 'pointer';
+      } else {
+        cc.canvas.style.cursor = 'default';
+      }
+    } else {
+      // Check if hovering over end turn button
+      if (isInsideButton(getEndTurnButton(), x, y)) {
+        cc.canvas.style.cursor = 'pointer';
+      } else {
+        cc.canvas.style.cursor = 'default';
+      }
+    }
+
+    // Check artifact hover
+    const prevHovered = hoveredArtifact;
+    hoveredArtifact = null;
+    for (const box of getArtifactHitBoxes()) {
+      if (x >= box.x && x <= box.x + box.width && y >= box.y && y <= box.y + box.height) {
+        const art = level.artifactSlots.artifacts.find(a => a.id === box.artifactId);
+        if (art) hoveredArtifact = art;
+        break;
+      }
+    }
+    if (hoveredArtifact !== prevHovered) render();
+  });
+
   window.addEventListener('resize', () => { cc = resizeCanvas(cc); render(); });
 
   render();

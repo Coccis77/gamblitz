@@ -27,6 +27,7 @@ export interface ArtifactDef {
   description: string;
   rarity: Rarity;
   effect: ArtifactEffect;
+  isStarter?: boolean;
 }
 
 export interface ArtifactSlots {

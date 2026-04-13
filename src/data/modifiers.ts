@@ -18,6 +18,14 @@ export const ALL_MODIFIERS: ModifierDef[] = [
     pieceType: 'pawn',
     ability: { type: 'slide', directions: 'forward', maxRange: 3, canCapture: false, canMoveWithoutCapture: true },
   },
+  {
+    id: 'pawn_diagonal_step',
+    name: 'Pawn Pivot',
+    description: 'Pawn can step 1 diagonally without capturing',
+    cost: 3,
+    pieceType: 'pawn',
+    ability: { type: 'step', directions: 'diagonal', maxRange: 1, canCapture: false, canMoveWithoutCapture: true },
+  },
 
   // ─── Knight ────────────────────────────────────
   {
@@ -72,12 +80,28 @@ export const ALL_MODIFIERS: ModifierDef[] = [
     pieceType: 'rook',
     ability: { type: 'jump', directions: 'knight', maxRange: 1, canCapture: true, canMoveWithoutCapture: true },
   },
+  {
+    id: 'rook_forward_charge',
+    name: 'Battering Ram',
+    description: 'Rook charges up to 4 forward',
+    cost: 4,
+    pieceType: 'rook',
+    ability: { type: 'slide', directions: 'forward', maxRange: 4, canCapture: true, canMoveWithoutCapture: true },
+  },
 
   // ─── Queen ─────────────────────────────────────
   {
     id: 'queen_knight_jump',
     name: 'Royal Chariot',
     description: 'Queen gains knight jump',
+    cost: 8,
+    pieceType: 'queen',
+    ability: { type: 'jump', directions: 'knight', maxRange: 1, canCapture: true, canMoveWithoutCapture: true },
+  },
+  {
+    id: 'queen_long_jump',
+    name: 'Royal Leap',
+    description: 'Queen can jump like a knight',
     cost: 8,
     pieceType: 'queen',
     ability: { type: 'jump', directions: 'knight', maxRange: 1, canCapture: true, canMoveWithoutCapture: true },
@@ -99,5 +123,13 @@ export const ALL_MODIFIERS: ModifierDef[] = [
     cost: 6,
     pieceType: 'king',
     ability: { type: 'slide', directions: 'diagonal', maxRange: 2, canCapture: true, canMoveWithoutCapture: true },
+  },
+  {
+    id: 'king_orthogonal_slide',
+    name: 'Royal Charge',
+    description: 'King slides up to 2 orthogonally',
+    cost: 5,
+    pieceType: 'king',
+    ability: { type: 'slide', directions: 'orthogonal', maxRange: 2, canCapture: true, canMoveWithoutCapture: true },
   },
 ];

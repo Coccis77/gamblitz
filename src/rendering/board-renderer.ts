@@ -1,7 +1,22 @@
 import { Position, BOARD_SIZE } from '../utils/types.js';
 import { getSquareColor, positionEquals } from '../core/board.js';
-import { Move } from '../core/movement.js';
+import { Move, getLegalMoves } from '../core/movement.js';
+import { Piece } from '../core/piece.js';
 import { CanvasContext, boardToPixel } from './canvas.js';
+
+const THREAT_OVERLAY_COLOR = 'rgba(200, 40, 40, 0.12)';
+
+export function computeThreatSquares(pieces: readonly Piece[]): Set<string> {
+  const threats = new Set<string>();
+  const enemies = pieces.filter(p => p.owner === 'enemy');
+  for (const enemy of enemies) {
+    const moves = getLegalMoves(enemy, pieces);
+    for (const move of moves) {
+      threats.add(`${move.to.row},${move.to.col}`);
+    }
+  }
+  return threats;
+}
 
 const LIGHT_COLOR = '#e8d5b0';
 const DARK_COLOR = '#a87d52';
@@ -17,6 +32,7 @@ export function drawBoard(
   cc: CanvasContext,
   selectedPos: Position | null,
   legalMoves: readonly Move[],
+  threatSquares: ReadonlySet<string> = new Set(),
 ): void {
   const { ctx, squareSize, boardOriginX, boardOriginY } = cc;
   const boardPixels = squareSize * BOARD_SIZE;
@@ -47,6 +63,12 @@ export function drawBoard(
       grad.addColorStop(1, isLight ? 'rgba(0,0,0,0.04)' : 'rgba(0,0,0,0.08)');
       ctx.fillStyle = grad;
       ctx.fillRect(x, y, squareSize, squareSize);
+
+      // Danger zone: subtle red tint for squares enemies can attack
+      if (threatSquares.has(`${row},${col}`)) {
+        ctx.fillStyle = THREAT_OVERLAY_COLOR;
+        ctx.fillRect(x, y, squareSize, squareSize);
+      }
 
       // Highlight selected square
       if (selectedPos && positionEquals(pos, selectedPos)) {
