@@ -25,6 +25,26 @@ export const PIECE_LABELS: Record<PieceType, string> = {
   pawn: 'P',
 };
 
+/** Unicode chess piece symbols — use filled (black) glyphs for both, color via fillStyle. */
+export const PIECE_SYMBOLS: Record<Owner, Record<PieceType, string>> = {
+  player: {
+    king: '\u265A',   // ♚
+    queen: '\u265B',  // ♛
+    rook: '\u265C',   // ♜
+    bishop: '\u265D',  // ♝
+    knight: '\u265E',  // ♞
+    pawn: '\u265F',   // ♟
+  },
+  enemy: {
+    king: '\u265A',   // ♚
+    queen: '\u265B',  // ♛
+    rook: '\u265C',   // ♜
+    bishop: '\u265D',  // ♝
+    knight: '\u265E',  // ♞
+    pawn: '\u265F',   // ♟
+  },
+};
+
 let nextId = 0;
 
 export function createPiece(type: PieceType, owner: Owner, position: Position): Piece {

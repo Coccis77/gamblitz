@@ -1,6 +1,5 @@
 import { Piece } from './piece.js';
-import { Move } from './movement.js';
-import { Position } from '../utils/types.js';
+import { Move, EnPassantInfo } from './movement.js';
 
 export type TurnPhase = 'player_turn' | 'enemy_turn';
 
@@ -9,11 +8,6 @@ export interface EnemyIntent {
   move: Move;
   /** For sliders: the direction of movement (dr, dc). Used to keep intent predictable. */
   direction?: [number, number];
-}
-
-export interface EnPassantInfo {
-  targetSquare: Position; // the square the capturing pawn moves to
-  capturedPieceId: string; // the pawn that can be captured
 }
 
 export interface GameState {

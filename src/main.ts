@@ -1,14 +1,15 @@
 import { initCanvas, resizeCanvas, CanvasContext, pixelToBoard } from './rendering/canvas.js';
 import { drawBoard, computeThreatSquares } from './rendering/board-renderer.js';
 import { drawPieces } from './rendering/piece-renderer.js';
+import { preloadPieceImages } from './rendering/piece-images.js';
 import { drawIntents, drawIntentBadges } from './rendering/intent-renderer.js';
 import {
   drawHUD, drawLevelComplete, drawGameOver, drawVictory,
   getEndTurnButton, getNextLevelButton, getRestartButton, isInsideButton,
-  ButtonRect, RunStats, getArtifactHitBoxes,
+  RunStats, getArtifactHitBoxes,
 } from './rendering/ui-renderer.js';
 import { drawShop, getShopCards, getArtifactRects, getContinueButton, getCancelButton, shopGridHitTest, PlacementState, ModifierApplyState, getSelectedPieceId, setSelectedPieceId } from './rendering/shop-renderer.js';
-import { addArtifact, canAddArtifact, removeArtifact, hasArtifactEffect, getArtifactEffectValue } from './core/artifact.js';
+import { addArtifact, canAddArtifact, removeArtifact, getArtifactEffectValue, ArtifactDef } from './core/artifact.js';
 import { ModifierDef, MAX_MODIFIER_SLOTS } from './core/modifier.js';
 import { positionEquals } from './core/board.js';
 import { Piece, createPiece, PieceType } from './core/piece.js';
@@ -22,14 +23,13 @@ import {
   executeMove, computeEnPassant,
 } from './input/click-handler.js';
 import { computeAllIntents, recalculateIntents } from './ai/intent.js';
-import { handleKingHit, KingHitResult } from './systems/king-hp.js';
+import { handleKingHit } from './systems/king-hp.js';
 import { RunState, createRunState, advanceRun, hasMutation } from './systems/run.js';
 import { GameEvent, EventEffect, rollEvent } from './systems/events.js';
 import { drawEventScreen, getEventOptionButtons } from './rendering/event-renderer.js';
 import { PromotionRecord, checkPlayerPawnPromotion, revertPromotions } from './systems/promotion.js';
 import { drawTitleScreen, getTitleStartButton } from './rendering/title-renderer.js';
 import { drawDraftScreen, getDraftButtons } from './rendering/draft-renderer.js';
-import { ArtifactDef } from './core/artifact.js';
 import { ALL_ARTIFACTS } from './data/artifacts.js';
 import { drawTutorialScreen, getTutorialNextButton, getTutorialSkipButton, getTutorialPageCount } from './rendering/tutorial-renderer.js';
 import { startFadeOut, isFading, updateFade, drawFade } from './rendering/transition.js';
@@ -66,7 +66,7 @@ let pendingShopIndex = -1;
 let currentEvent: GameEvent | null = null;
 let promotionRecords: PromotionRecord[] = [];
 let tutorialPage = 0;
-let draftArtifacts: import('./core/artifact.js').ArtifactDef[] = [];
+let draftArtifacts: ArtifactDef[] = [];
 let hoveredArtifact: ArtifactDef | null = null;
 let teleportChoices: Position[] | null = null; // squares player can teleport king to
 let teleportKingId: string | null = null;
@@ -93,6 +93,8 @@ function startNewRun(seed?: number): void {
 }
 
 function finishDraft(): void {
+  // Rebuild game state now that the starter artifact is equipped
+  state = buildGameStateForLevel(level, run, rng);
   screen = 'level';
   applyMutationsToState();
 }
@@ -378,6 +380,86 @@ function checkObjectiveAndVictory(): void {
   checkLevelComplete(level, state.pieces);
 }
 
+function drawTeleportChoices(): void {
+  if (!teleportChoices) return;
+
+  const { ctx, squareSize, boardOriginX, boardOriginY } = cc;
+  const pulse = (Math.sin(Date.now() / 250) + 1) / 2;
+
+  for (const sq of teleportChoices) {
+    const sx = boardOriginX + sq.col * squareSize;
+    const sy = boardOriginY + sq.row * squareSize;
+    const alpha = 0.25 + pulse * 0.2;
+    ctx.fillStyle = `rgba(80, 160, 255, ${alpha})`;
+    ctx.fillRect(sx, sy, squareSize, squareSize);
+    ctx.strokeStyle = `rgba(100, 180, 255, ${alpha + 0.2})`;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(sx + 1, sy + 1, squareSize - 2, squareSize - 2);
+  }
+
+  const bannerH = Math.floor(squareSize * 0.45);
+  const bannerY = boardOriginY + 4;
+  const boardW = squareSize * BOARD_SIZE;
+  ctx.fillStyle = 'rgba(10, 10, 30, 0.85)';
+  ctx.beginPath();
+  ctx.roundRect(boardOriginX + 4, bannerY, boardW - 8, bannerH, 6);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(100, 180, 255, 0.5)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.fillStyle = '#8cf';
+  ctx.font = `bold ${Math.floor(squareSize * 0.22)}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('Click a blue square to teleport your King', boardOriginX + boardW / 2, bannerY + bannerH / 2);
+}
+
+function drawArtifactTooltip(): void {
+  if (!hoveredArtifact || screen !== 'level') return;
+
+  const { ctx, squareSize, boardOriginX, boardOriginY } = cc;
+  const fontSize = Math.max(12, Math.floor(squareSize * 0.18));
+  const padding = 8;
+  const { name, description } = hoveredArtifact;
+
+  ctx.font = `bold ${fontSize}px sans-serif`;
+  const nameW = ctx.measureText(name).width;
+  ctx.font = `${fontSize}px sans-serif`;
+  const descW = ctx.measureText(description).width;
+  const boxW = Math.max(nameW, descW) + padding * 2;
+  const boxH = fontSize * 2 + padding * 2 + 4;
+  const boxX = boardOriginX;
+  const boxY = boardOriginY + squareSize * BOARD_SIZE - boxH - 4;
+
+  ctx.fillStyle = 'rgba(20, 20, 40, 0.92)';
+  ctx.beginPath();
+  ctx.roundRect(boxX, boxY, boxW, boxH, 6);
+  ctx.fill();
+  ctx.strokeStyle = '#555';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  ctx.fillStyle = '#f0c040';
+  ctx.font = `bold ${fontSize}px sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText(name, boxX + padding, boxY + padding);
+
+  ctx.fillStyle = '#ccc';
+  ctx.font = `${fontSize}px sans-serif`;
+  ctx.fillText(description, boxX + padding, boxY + padding + fontSize + 4);
+}
+
+function buildRunStats(): RunStats {
+  return {
+    rank: run.rank,
+    levelsCleared: run.totalLevelsCleared,
+    totalCaptures: run.totalCaptures,
+    totalGoldEarned: run.totalGoldEarned,
+    seed: run.seed,
+  };
+}
+
 function render(): void {
   cc.ctx.clearRect(0, 0, cc.canvas.width, cc.canvas.height);
 
@@ -420,94 +502,22 @@ function render(): void {
     drawIntentBadges(cc, state.enemyIntents, state.pieces);
   }
 
-  // Teleport choice highlights
-  if (teleportChoices) {
-    const { ctx, squareSize, boardOriginX, boardOriginY } = cc;
-    const pulse = (Math.sin(Date.now() / 250) + 1) / 2;
-    for (const sq of teleportChoices) {
-      const sx = boardOriginX + sq.col * squareSize;
-      const sy = boardOriginY + sq.row * squareSize;
-      const alpha = 0.25 + pulse * 0.2;
-      ctx.fillStyle = `rgba(80, 160, 255, ${alpha})`;
-      ctx.fillRect(sx, sy, squareSize, squareSize);
-      ctx.strokeStyle = `rgba(100, 180, 255, ${alpha + 0.2})`;
-      ctx.lineWidth = 2;
-      ctx.strokeRect(sx + 1, sy + 1, squareSize - 2, squareSize - 2);
-    }
-    // Banner on top of the board
-    const bannerH = Math.floor(squareSize * 0.45);
-    const bannerY = boardOriginY + 4;
-    const boardW = squareSize * BOARD_SIZE;
-    ctx.fillStyle = 'rgba(10, 10, 30, 0.85)';
-    ctx.beginPath();
-    ctx.roundRect(boardOriginX + 4, bannerY, boardW - 8, bannerH, 6);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(100, 180, 255, 0.5)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.fillStyle = '#8cf';
-    ctx.font = `bold ${Math.floor(squareSize * 0.22)}px sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('Click a blue square to teleport your King', boardOriginX + boardW / 2, bannerY + bannerH / 2);
-  }
-
+  drawTeleportChoices();
   drawHUD(cc, state, level, economy, run.rank, selection.selectedPiece);
 
-  const runStats: RunStats = {
-    rank: run.rank,
-    levelsCleared: run.totalLevelsCleared,
-    totalCaptures: run.totalCaptures,
-    totalGoldEarned: run.totalGoldEarned,
-    seed: run.seed,
-  };
-
-  if (level.gameOver) drawGameOver(cc, runStats);
-  else if (level.victory) drawVictory(cc, runStats);
-  else if (level.completed) {
+  const runStats = buildRunStats();
+  if (level.gameOver) {
+    drawGameOver(cc, runStats);
+  } else if (level.victory) {
+    drawVictory(cc, runStats);
+  } else if (level.completed) {
     const completionGold = getCompletionGold(state.turnNumber, level.template.levelType);
     const captureGold = level.progress.capturedCount * GOLD_PER_CAPTURE;
     const isBoss = level.template.levelType === 'boss';
     drawLevelComplete(cc, completionGold + captureGold, level.progress.capturedCount, isBoss, isBoss ? run.rank + 1 : undefined);
   }
 
-  // Artifact tooltip
-  if (hoveredArtifact && screen === 'level') {
-    const tooltipFont = Math.max(12, Math.floor(cc.squareSize * 0.18));
-    const padding = 8;
-    const name = hoveredArtifact.name;
-    const desc = hoveredArtifact.description;
-    cc.ctx.font = `bold ${tooltipFont}px sans-serif`;
-    const nameW = cc.ctx.measureText(name).width;
-    cc.ctx.font = `${tooltipFont}px sans-serif`;
-    const descW = cc.ctx.measureText(desc).width;
-    const boxW = Math.max(nameW, descW) + padding * 2;
-    const boxH = tooltipFont * 2 + padding * 2 + 4;
-
-    // Position above the bottom bar
-    const boxX = cc.boardOriginX;
-    const boxY = cc.boardOriginY + cc.squareSize * BOARD_SIZE - boxH - 4;
-
-    cc.ctx.fillStyle = 'rgba(20, 20, 40, 0.92)';
-    cc.ctx.beginPath();
-    cc.ctx.roundRect(boxX, boxY, boxW, boxH, 6);
-    cc.ctx.fill();
-    cc.ctx.strokeStyle = '#555';
-    cc.ctx.lineWidth = 1;
-    cc.ctx.stroke();
-
-    cc.ctx.fillStyle = '#f0c040';
-    cc.ctx.font = `bold ${tooltipFont}px sans-serif`;
-    cc.ctx.textAlign = 'left';
-    cc.ctx.textBaseline = 'top';
-    cc.ctx.fillText(name, boxX + padding, boxY + padding);
-
-    cc.ctx.fillStyle = '#ccc';
-    cc.ctx.font = `${tooltipFont}px sans-serif`;
-    cc.ctx.fillText(desc, boxX + padding, boxY + padding + tooltipFont + 4);
-  }
-
-  // Fade overlay on top of everything
+  drawArtifactTooltip();
   drawFade(cc.ctx, cc.canvas.width, cc.canvas.height);
 }
 
@@ -721,116 +731,97 @@ function onShopClick(x: number, y: number): void {
   }
 }
 
-function onClick(e: MouseEvent): void {
-  if (isFading()) return;
-  if (isAnimating()) return;
-  const rect = cc.canvas.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  const y = e.clientY - rect.top;
+function onTitleClick(x: number, y: number): void {
+  if (isInsideButton(getTitleStartButton(), x, y)) {
+    tutorialPage = 0;
+    startFadeOut(() => { screen = 'tutorial'; }, 0.06);
+  }
+}
 
-  if (screen === 'title') {
-    if (isInsideButton(getTitleStartButton(), x, y)) {
-      tutorialPage = 0;
-      startFadeOut(() => { screen = 'tutorial'; }, 0.06);
-    }
+function onTutorialClick(x: number, y: number): void {
+  if (isInsideButton(getTutorialSkipButton(), x, y)) {
+    startFadeOut(() => { startNewRun(); }, 0.06);
     return;
   }
-
-  if (screen === 'tutorial') {
-    if (isInsideButton(getTutorialSkipButton(), x, y)) {
+  if (isInsideButton(getTutorialNextButton(), x, y)) {
+    if (tutorialPage < getTutorialPageCount() - 1) {
+      tutorialPage++;
+      render();
+    } else {
       startFadeOut(() => { startNewRun(); }, 0.06);
+    }
+  }
+}
+
+function onDraftClick(x: number, y: number): void {
+  const buttons = getDraftButtons();
+  for (let i = 0; i < buttons.length; i++) {
+    if (isInsideButton(buttons[i]!, x, y)) {
+      const chosen = draftArtifacts[i]!;
+      addArtifact(level.artifactSlots, chosen);
+      if (chosen.effect.kind === 'extra_slot') {
+        level.artifactSlots.maxSlots++;
+      }
+      startFadeOut(() => { finishDraft(); }, 0.06);
       return;
     }
-    if (isInsideButton(getTutorialNextButton(), x, y)) {
-      if (tutorialPage < getTutorialPageCount() - 1) {
-        tutorialPage++;
-        render();
-      } else {
-        startFadeOut(() => { startNewRun(); }, 0.06);
-      }
+  }
+}
+
+function onEventClick(x: number, y: number): void {
+  if (!currentEvent) return;
+
+  const buttons = getEventOptionButtons();
+  for (let i = 0; i < buttons.length; i++) {
+    if (isInsideButton(buttons[i]!, x, y)) {
+      const opt = currentEvent.options[i]!;
+      applyEvent(opt.effect);
+      currentEvent = null;
+      if (level.gameOver) { render(); return; }
+      fadeToShop();
       return;
     }
-    return;
   }
+}
 
-  if (screen === 'draft') {
-    for (let i = 0; i < getDraftButtons().length; i++) {
-      const btn = getDraftButtons()[i]!;
-      if (isInsideButton(btn, x, y)) {
-        const chosen = draftArtifacts[i]!;
-        addArtifact(level.artifactSlots, chosen);
-        if (chosen.effect.kind === 'extra_slot') {
-          level.artifactSlots.maxSlots++;
-        }
-        startFadeOut(() => { finishDraft(); }, 0.06);
-        return;
-      }
+function onLevelCompleteClick(x: number, y: number): void {
+  if (!isInsideButton(getNextLevelButton(), x, y)) return;
+
+  const bonus = getCompletionGold(state.turnNumber, level.template.levelType);
+  const artifactBonus = getArtifactEffectValue(level.artifactSlots, 'gold_per_level');
+  const totalBonus = bonus + artifactBonus;
+  earnGold(economy, totalBonus);
+  run.totalGoldEarned += totalBonus;
+
+  currentEvent = rollEvent(rng);
+  if (currentEvent) {
+    fadeToEvent();
+  } else {
+    fadeToShop();
+  }
+}
+
+function onTeleportClick(x: number, y: number): void {
+  const pos = pixelToBoard(cc, x, y);
+  if (pos && teleportChoices!.some(s => s.row === pos.row && s.col === pos.col)) {
+    const king = state.pieces.find(p => p.id === teleportKingId);
+    if (king) {
+      king.position = { ...pos };
     }
-    return;
+    teleportChoices = null;
+    teleportKingId = null;
+    render();
   }
+}
 
-  if (screen === 'event' && currentEvent) {
-    for (let i = 0; i < getEventOptionButtons().length; i++) {
-      const btn = getEventOptionButtons()[i]!;
-      if (isInsideButton(btn, x, y)) {
-        const opt = currentEvent.options[i]!;
-        applyEvent(opt.effect);
-        currentEvent = null;
-        if (level.gameOver) { render(); return; }
-        fadeToShop();
-        return;
-      }
-    }
-    return;
-  }
-
-  if (screen === 'shop') {
-    onShopClick(x, y);
-    return;
-  }
-
-  if (level.gameOver) {
-    if (isInsideButton(getRestartButton(), x, y)) { fadeToRestart(); }
-    return;
-  }
-
-  if (level.completed) {
-    if (isInsideButton(getNextLevelButton(), x, y)) {
-      // Award gold for completing the level
-      const bonus = getCompletionGold(state.turnNumber, level.template.levelType);
-      const artifactBonus = getArtifactEffectValue(level.artifactSlots, 'gold_per_level');
-      const totalBonus = bonus + artifactBonus;
-      earnGold(economy, totalBonus);
-      run.totalGoldEarned += totalBonus;
-
-      // Roll for random event
-      currentEvent = rollEvent(rng);
-      if (currentEvent) {
-        fadeToEvent();
-      } else {
-        fadeToShop();
-      }
-    }
-    return;
-  }
-
+function onBoardClick(x: number, y: number): void {
   if (isInsideButton(getEndTurnButton(), x, y)) {
     if (state.phase === 'player_turn') executeEnemyTurn();
     return;
   }
 
-  // Handle teleport choice
   if (teleportChoices && teleportKingId) {
-    const pos = pixelToBoard(cc, x, y);
-    if (pos && teleportChoices.some(s => s.row === pos.row && s.col === pos.col)) {
-      const king = state.pieces.find(p => p.id === teleportKingId);
-      if (king) {
-        king.position = { ...pos };
-      }
-      teleportChoices = null;
-      teleportKingId = null;
-      render();
-    }
+    onTeleportClick(x, y);
     return;
   }
 
@@ -840,33 +831,61 @@ function onClick(e: MouseEvent): void {
   if (!pos) return;
 
   const move = handleBoardClick(pos, state.pieces, selection, state.enPassants);
+  if (!move) { render(); return; }
 
-  if (move) {
-    performMove(move);
-    usePlayerMove(state);
+  performMove(move);
+  usePlayerMove(state);
 
-    state.enPassants = [];
-    const ep = computeEnPassant(move, state.pieces);
-    if (ep) state.enPassants.push(ep);
+  state.enPassants = [];
+  const ep = computeEnPassant(move, state.pieces);
+  if (ep) state.enPassants.push(ep);
 
-    // Check objective before promotion (pawn on row 0 counts before becoming queen)
-    checkObjectiveAndVictory();
-    if (level.completed || level.gameOver) { render(); return; }
+  // Check objective before promotion (pawn on row 0 counts before becoming queen)
+  checkObjectiveAndVictory();
+  if (level.completed || level.gameOver) { render(); return; }
 
-    // Check player pawn promotion
-    const newPromotions = checkPlayerPawnPromotion(state.pieces);
-    promotionRecords.push(...newPromotions);
+  // Check player pawn promotion
+  const newPromotions = checkPlayerPawnPromotion(state.pieces);
+  promotionRecords.push(...newPromotions);
 
-    state.enemyIntents = recalculateIntents(state.enemyIntents, state.pieces);
+  state.enemyIntents = recalculateIntents(state.enemyIntents, state.pieces);
 
-    if (isPlayerTurnOver(state)) {
-      render();
-      setTimeout(() => executeEnemyTurn(), 300);
-      return;
-    }
+  if (isPlayerTurnOver(state)) {
+    render();
+    setTimeout(() => executeEnemyTurn(), 300);
+    return;
   }
 
   render();
+}
+
+function onClick(e: MouseEvent): void {
+  if (isFading() || isAnimating()) return;
+
+  const rect = cc.canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+
+  switch (screen) {
+    case 'title':    onTitleClick(x, y); return;
+    case 'tutorial': onTutorialClick(x, y); return;
+    case 'draft':    onDraftClick(x, y); return;
+    case 'event':    onEventClick(x, y); return;
+    case 'shop':     onShopClick(x, y); return;
+    case 'level':    break;
+  }
+
+  if (level.gameOver) {
+    if (isInsideButton(getRestartButton(), x, y)) fadeToRestart();
+    return;
+  }
+
+  if (level.completed) {
+    onLevelCompleteClick(x, y);
+    return;
+  }
+
+  onBoardClick(x, y);
 }
 
 // ─── Fade helpers ────────────────────────────────────────
@@ -877,10 +896,6 @@ function fadeToShop(): void {
 
 function fadeToEvent(): void {
   startFadeOut(() => { screen = 'event'; }, 0.06);
-}
-
-function fadeToNextLevel(): void {
-  startFadeOut(() => { startNextLevel(); }, 0.06);
 }
 
 function fadeToRestart(): void {
@@ -904,6 +919,9 @@ function gameLoop(): void {
 function init(): void {
   cc = initCanvas('game-canvas');
   screen = 'title';
+
+  // Preload chess piece images
+  preloadPieceImages();
 
   cc.canvas.addEventListener('click', onClick);
 

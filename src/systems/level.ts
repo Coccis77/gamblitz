@@ -3,7 +3,8 @@ import { Objective, ObjectiveProgress, createObjective, createObjectiveProgress,
 import { GameState, createGameState } from '../core/game.js';
 import { LevelTemplate, NORMAL_TEMPLATES, ELITE_TEMPLATES, BOSS_TEMPLATES } from '../data/templates.js';
 import { KingHP, createKingHP } from './king-hp.js';
-import { ArtifactSlots, createArtifactSlots, getArtifactEffectValue, hasArtifactEffect } from '../core/artifact.js';
+import { ArtifactEffect, ArtifactSlots, createArtifactSlots, getArtifactEffectValue, hasArtifactEffect } from '../core/artifact.js';
+import { ModifierDef } from '../core/modifier.js';
 import { computeAllIntents } from '../ai/intent.js';
 import { BOARD_SIZE } from '../utils/types.js';
 import { DEFAULT_ARMY_SLOTS } from './shop.js';
@@ -217,50 +218,65 @@ export function buildGameStateForLevel(level: LevelState, run: RunState, rng: Rn
   return state;
 }
 
+interface ArtifactMovementBonus {
+  pieceType: PieceType;
+  effectKind: ArtifactEffect['kind'];
+  modifier: ModifierDef;
+}
+
+const ARTIFACT_MOVEMENT_BONUSES: ArtifactMovementBonus[] = [
+  {
+    pieceType: 'bishop', effectKind: 'bishop_orthogonal_step',
+    modifier: {
+      id: 'artifact_bishop_orth', name: 'Compass Step', description: 'Orthogonal step (artifact)',
+      cost: 0, pieceType: 'bishop',
+      ability: { type: 'step', directions: 'orthogonal', maxRange: 1, canCapture: true, canMoveWithoutCapture: true },
+    },
+  },
+  {
+    pieceType: 'rook', effectKind: 'rook_diagonal_step',
+    modifier: {
+      id: 'artifact_rook_diag', name: 'Angle Step', description: 'Diagonal step (artifact)',
+      cost: 0, pieceType: 'rook',
+      ability: { type: 'step', directions: 'diagonal', maxRange: 1, canCapture: true, canMoveWithoutCapture: true },
+    },
+  },
+  {
+    pieceType: 'knight', effectKind: 'knight_extended_range',
+    modifier: {
+      id: 'artifact_knight_ext', name: 'Horse Frenzy', description: 'Extended jump (artifact)',
+      cost: 0, pieceType: 'knight',
+      ability: { type: 'step', directions: 'all', maxRange: 2, canCapture: true, canMoveWithoutCapture: true },
+    },
+  },
+  {
+    pieceType: 'pawn', effectKind: 'pawn_double_step_always',
+    modifier: {
+      id: 'artifact_pawn_double', name: 'Iron Boots', description: 'Move 2 forward every turn (artifact)',
+      cost: 0, pieceType: 'pawn',
+      ability: { type: 'slide', directions: 'forward', maxRange: 2, canCapture: false, canMoveWithoutCapture: true },
+    },
+  },
+  {
+    pieceType: 'pawn', effectKind: 'pawn_capture_backward',
+    modifier: {
+      id: 'artifact_pawn_back', name: 'Retreat', description: 'Backward diagonal capture (artifact)',
+      cost: 0, pieceType: 'pawn',
+      ability: { type: 'step', directions: 'backward-diagonal', maxRange: 1, canCapture: true, canMoveWithoutCapture: false },
+    },
+  },
+];
+
 function applyArtifactMovementBonuses(level: LevelState): void {
   const arts = level.artifactSlots;
 
   for (const piece of level.playerArmy) {
     piece.modifiers = piece.modifiers.filter(m => !m.id.startsWith('artifact_'));
 
-    if (piece.type === 'bishop' && hasArtifactEffect(arts, 'bishop_orthogonal_step')) {
-      piece.modifiers.push({
-        id: 'artifact_bishop_orth', name: 'Compass Step', description: 'Orthogonal step (artifact)',
-        cost: 0, pieceType: 'bishop',
-        ability: { type: 'step', directions: 'orthogonal', maxRange: 1, canCapture: true, canMoveWithoutCapture: true },
-      });
-    }
-
-    if (piece.type === 'rook' && hasArtifactEffect(arts, 'rook_diagonal_step')) {
-      piece.modifiers.push({
-        id: 'artifact_rook_diag', name: 'Angle Step', description: 'Diagonal step (artifact)',
-        cost: 0, pieceType: 'rook',
-        ability: { type: 'step', directions: 'diagonal', maxRange: 1, canCapture: true, canMoveWithoutCapture: true },
-      });
-    }
-
-    if (piece.type === 'knight' && hasArtifactEffect(arts, 'knight_extended_range')) {
-      piece.modifiers.push({
-        id: 'artifact_knight_ext', name: 'Horse Frenzy', description: 'Extended jump (artifact)',
-        cost: 0, pieceType: 'knight',
-        ability: { type: 'step', directions: 'all', maxRange: 2, canCapture: true, canMoveWithoutCapture: true },
-      });
-    }
-
-    if (piece.type === 'pawn' && hasArtifactEffect(arts, 'pawn_double_step_always')) {
-      piece.modifiers.push({
-        id: 'artifact_pawn_double', name: 'Iron Boots', description: 'Move 2 forward every turn (artifact)',
-        cost: 0, pieceType: 'pawn',
-        ability: { type: 'slide', directions: 'forward', maxRange: 2, canCapture: false, canMoveWithoutCapture: true },
-      });
-    }
-
-    if (piece.type === 'pawn' && hasArtifactEffect(arts, 'pawn_capture_backward')) {
-      piece.modifiers.push({
-        id: 'artifact_pawn_back', name: 'Retreat', description: 'Backward diagonal capture (artifact)',
-        cost: 0, pieceType: 'pawn',
-        ability: { type: 'step', directions: 'backward-diagonal', maxRange: 1, canCapture: true, canMoveWithoutCapture: false },
-      });
+    for (const bonus of ARTIFACT_MOVEMENT_BONUSES) {
+      if (piece.type === bonus.pieceType && hasArtifactEffect(arts, bonus.effectKind)) {
+        piece.modifiers.push({ ...bonus.modifier });
+      }
     }
   }
 }

@@ -2,6 +2,7 @@ import { GameState } from '../core/game.js';
 import { LevelState } from '../systems/level.js';
 import { Economy } from '../systems/economy.js';
 import { Piece } from '../core/piece.js';
+import { RARITY_COLORS } from '../core/artifact.js';
 import { CanvasContext } from './canvas.js';
 import { BOARD_SIZE } from '../utils/types.js';
 import { KingHP } from '../systems/king-hp.js';
@@ -59,7 +60,6 @@ export function drawInfoBar(
   fontSize: number,
   data: InfoBarData,
 ): number {
-  const heartSize = fontSize;
   ctx.font = `bold ${fontSize}px sans-serif`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
@@ -218,7 +218,6 @@ export function drawHUD(cc: CanvasContext, state: GameState, level: LevelState, 
       ctx.fillText(`${pieceName}: no modifiers`, boardOriginX, line2Y);
     }
   } else if (level.artifactSlots.artifacts.length > 0) {
-    const RARITY_COLORS: Record<string, string> = { common: '#ccc', uncommon: '#4a9fd9', rare: '#a855f7', legendary: '#f0c040' };
     ctx.font = `${line2Font}px sans-serif`;
     let ax = boardOriginX;
     artifactHitBoxes = [];
@@ -262,34 +261,65 @@ export function drawHUD(cc: CanvasContext, state: GameState, level: LevelState, 
 
 // ─── Overlays ────────────────────────────────────────────
 
-function drawOverlay(
-  cc: CanvasContext,
-  title: string,
-  titleColor: string,
-  btnLabel: string,
-  outBtn: 'next' | 'restart',
-): void {
+export interface RunStats {
+  rank: number;
+  levelsCleared: number;
+  totalCaptures: number;
+  totalGoldEarned: number;
+  seed?: number;
+}
+
+function drawOverlayBackground(cc: CanvasContext, opacity: number = 0.7): { centerX: number; boardPixels: number } {
   const { ctx, squareSize, boardOriginX, boardOriginY } = cc;
   const boardPixels = squareSize * BOARD_SIZE;
+  const centerX = boardOriginX + boardPixels / 2;
 
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+  ctx.fillStyle = `rgba(0, 0, 0, ${opacity})`;
   ctx.fillRect(boardOriginX, boardOriginY, boardPixels, boardPixels);
 
-  const bigFont = Math.floor(squareSize * 0.5);
-  ctx.fillStyle = titleColor;
-  ctx.font = `bold ${bigFont}px sans-serif`;
+  return { centerX, boardPixels };
+}
+
+function drawRunStats(
+  ctx: CanvasRenderingContext2D,
+  squareSize: number,
+  centerX: number,
+  startY: number,
+  lines: string[],
+  color: string,
+  seed?: number,
+): void {
+  const statFont = Math.floor(squareSize * 0.22);
+  const lineH = statFont + 8;
+  ctx.font = `${statFont}px sans-serif`;
+  ctx.fillStyle = color;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(title, boardOriginX + boardPixels / 2, boardOriginY + boardPixels / 2 - 30);
+
+  for (let i = 0; i < lines.length; i++) {
+    ctx.fillText(lines[i]!, centerX, startY + lineH * i);
+  }
+
+  if (seed !== undefined) {
+    ctx.fillStyle = '#888';
+    ctx.font = `${Math.floor(statFont * 0.8)}px sans-serif`;
+    ctx.fillText(`Seed: ${seed}`, centerX, startY + lineH * lines.length + 4);
+  }
+}
+
+function drawOverlayButton(
+  cc: CanvasContext,
+  label: string,
+  yFraction: number,
+): ButtonRect {
+  const { ctx, squareSize, boardOriginX, boardOriginY } = cc;
+  const boardPixels = squareSize * BOARD_SIZE;
+  const centerX = boardOriginX + boardPixels / 2;
 
   const btnWidth = squareSize * 2.5;
   const btnHeight = 44;
-  const btnX = boardOriginX + (boardPixels - btnWidth) / 2;
-  const btnY = boardOriginY + boardPixels / 2 + 20;
-
-  const rect = { x: btnX, y: btnY, width: btnWidth, height: btnHeight };
-  if (outBtn === 'next') nextLevelButton = rect;
-  else restartButton = rect;
+  const btnX = centerX - btnWidth / 2;
+  const btnY = boardOriginY + boardPixels * yFraction;
 
   ctx.fillStyle = '#4a90d9';
   ctx.beginPath();
@@ -300,23 +330,20 @@ function drawOverlay(
   ctx.font = `bold ${Math.floor(squareSize * 0.25)}px sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(btnLabel, btnX + btnWidth / 2, btnY + btnHeight / 2);
+  ctx.fillText(label, btnX + btnWidth / 2, btnY + btnHeight / 2);
+
+  return { x: btnX, y: btnY, width: btnWidth, height: btnHeight };
 }
 
 export function drawLevelComplete(cc: CanvasContext, goldEarned: number, piecesCaptured: number, isBoss?: boolean, nextRank?: number): void {
-  const { ctx, squareSize, boardOriginX, boardOriginY } = cc;
-  const boardPixels = squareSize * BOARD_SIZE;
-  const centerX = boardOriginX + boardPixels / 2;
-
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
-  ctx.fillRect(boardOriginX, boardOriginY, boardPixels, boardPixels);
+  const { ctx, squareSize, boardOriginY } = cc;
+  const { centerX, boardPixels } = drawOverlayBackground(cc, 0.65);
 
   const bigFont = Math.floor(squareSize * 0.5);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
   if (isBoss) {
-    // Boss defeated — special message
     ctx.fillStyle = '#f0c040';
     ctx.font = `bold ${bigFont}px sans-serif`;
     ctx.fillText('BOSS DEFEATED!', centerX, boardOriginY + boardPixels * 0.22);
@@ -331,7 +358,6 @@ export function drawLevelComplete(cc: CanvasContext, goldEarned: number, piecesC
     ctx.fillText('LEVEL COMPLETE', centerX, boardOriginY + boardPixels * 0.25);
   }
 
-  // Stats
   const statsY = isBoss ? 0.42 : 0.40;
   const statFont = Math.floor(squareSize * 0.25);
   ctx.font = `${statFont}px sans-serif`;
@@ -340,41 +366,12 @@ export function drawLevelComplete(cc: CanvasContext, goldEarned: number, piecesC
   ctx.fillStyle = '#ccc';
   ctx.fillText(`${piecesCaptured} pieces captured`, centerX, boardOriginY + boardPixels * (statsY + 0.08));
 
-  // Next Level button
-  const btnWidth = squareSize * 2.5;
-  const btnHeight = 44;
-  const btnX = centerX - btnWidth / 2;
-  const btnY = boardOriginY + boardPixels * 0.62;
-
-  nextLevelButton = { x: btnX, y: btnY, width: btnWidth, height: btnHeight };
-
-  ctx.fillStyle = '#4a90d9';
-  ctx.beginPath();
-  ctx.roundRect(btnX, btnY, btnWidth, btnHeight, 6);
-  ctx.fill();
-
-  ctx.fillStyle = '#fff';
-  ctx.font = `bold ${Math.floor(squareSize * 0.25)}px sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('Next Level', btnX + btnWidth / 2, btnY + btnHeight / 2);
-}
-
-export interface RunStats {
-  rank: number;
-  levelsCleared: number;
-  totalCaptures: number;
-  totalGoldEarned: number;
-  seed?: number;
+  nextLevelButton = drawOverlayButton(cc, 'Next Level', 0.62);
 }
 
 export function drawGameOver(cc: CanvasContext, stats?: RunStats): void {
-  const { ctx, squareSize, boardOriginX, boardOriginY } = cc;
-  const boardPixels = squareSize * BOARD_SIZE;
-  const centerX = boardOriginX + boardPixels / 2;
-
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-  ctx.fillRect(boardOriginX, boardOriginY, boardPixels, boardPixels);
+  const { ctx, squareSize, boardOriginY } = cc;
+  const { centerX, boardPixels } = drawOverlayBackground(cc);
 
   const bigFont = Math.floor(squareSize * 0.5);
   ctx.fillStyle = '#e55';
@@ -383,51 +380,21 @@ export function drawGameOver(cc: CanvasContext, stats?: RunStats): void {
   ctx.textBaseline = 'middle';
   ctx.fillText('GAME OVER', centerX, boardOriginY + boardPixels * 0.25);
 
-  // Stats
   if (stats) {
-    const statFont = Math.floor(squareSize * 0.22);
-    ctx.font = `${statFont}px sans-serif`;
-    ctx.fillStyle = '#ccc';
-    const startY = boardOriginY + boardPixels * 0.38;
-    const lineH = statFont + 8;
-    ctx.fillText(`Rank reached: ${stats.rank}`, centerX, startY);
-    ctx.fillText(`Levels cleared: ${stats.levelsCleared}`, centerX, startY + lineH);
-    ctx.fillText(`Pieces captured: ${stats.totalCaptures}`, centerX, startY + lineH * 2);
-    ctx.fillText(`Gold earned: ${stats.totalGoldEarned}`, centerX, startY + lineH * 3);
-    if (stats.seed !== undefined) {
-      ctx.fillStyle = '#888';
-      ctx.font = `${Math.floor(statFont * 0.8)}px sans-serif`;
-      ctx.fillText(`Seed: ${stats.seed}`, centerX, startY + lineH * 4 + 4);
-    }
+    drawRunStats(ctx, squareSize, centerX, boardOriginY + boardPixels * 0.38, [
+      `Rank reached: ${stats.rank}`,
+      `Levels cleared: ${stats.levelsCleared}`,
+      `Pieces captured: ${stats.totalCaptures}`,
+      `Gold earned: ${stats.totalGoldEarned}`,
+    ], '#ccc', stats.seed);
   }
 
-  // Restart button
-  const btnWidth = squareSize * 2.5;
-  const btnHeight = 44;
-  const btnX = centerX - btnWidth / 2;
-  const btnY = boardOriginY + boardPixels * 0.72;
-
-  restartButton = { x: btnX, y: btnY, width: btnWidth, height: btnHeight };
-
-  ctx.fillStyle = '#4a90d9';
-  ctx.beginPath();
-  ctx.roundRect(btnX, btnY, btnWidth, btnHeight, 6);
-  ctx.fill();
-
-  ctx.fillStyle = '#fff';
-  ctx.font = `bold ${Math.floor(squareSize * 0.25)}px sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('Restart', btnX + btnWidth / 2, btnY + btnHeight / 2);
+  restartButton = drawOverlayButton(cc, 'Restart', 0.72);
 }
 
 export function drawVictory(cc: CanvasContext, stats: RunStats): void {
   const { ctx, squareSize, boardOriginX, boardOriginY } = cc;
-  const boardPixels = squareSize * BOARD_SIZE;
-  const centerX = boardOriginX + boardPixels / 2;
-
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-  ctx.fillRect(boardOriginX, boardOriginY, boardPixels, boardPixels);
+  const { centerX, boardPixels } = drawOverlayBackground(cc);
 
   // Glow
   const glow = ctx.createRadialGradient(centerX, boardOriginY + boardPixels * 0.3, 0, centerX, boardOriginY + boardPixels * 0.3, boardPixels * 0.5);
@@ -448,39 +415,13 @@ export function drawVictory(cc: CanvasContext, stats: RunStats): void {
   ctx.font = `${subFont}px sans-serif`;
   ctx.fillText('You defeated the Dark King!', centerX, boardOriginY + boardPixels * 0.32);
 
-  // Stats
-  const statFont = Math.floor(squareSize * 0.22);
-  ctx.font = `${statFont}px sans-serif`;
-  ctx.fillStyle = '#aaa';
-  const startY = boardOriginY + boardPixels * 0.42;
-  const lineH = statFont + 8;
-  ctx.fillText(`Levels cleared: ${stats.levelsCleared}`, centerX, startY);
-  ctx.fillText(`Pieces captured: ${stats.totalCaptures}`, centerX, startY + lineH);
-  ctx.fillText(`Gold earned: ${stats.totalGoldEarned}`, centerX, startY + lineH * 2);
-  if (stats.seed !== undefined) {
-    ctx.fillStyle = '#888';
-    ctx.font = `${Math.floor(statFont * 0.8)}px sans-serif`;
-    ctx.fillText(`Seed: ${stats.seed}`, centerX, startY + lineH * 3 + 4);
-  }
+  drawRunStats(ctx, squareSize, centerX, boardOriginY + boardPixels * 0.42, [
+    `Levels cleared: ${stats.levelsCleared}`,
+    `Pieces captured: ${stats.totalCaptures}`,
+    `Gold earned: ${stats.totalGoldEarned}`,
+  ], '#aaa', stats.seed);
 
-  // Restart button
-  const btnWidth = squareSize * 2.5;
-  const btnHeight = 44;
-  const btnX = centerX - btnWidth / 2;
-  const btnY = boardOriginY + boardPixels * 0.75;
-
-  restartButton = { x: btnX, y: btnY, width: btnWidth, height: btnHeight };
-
-  ctx.fillStyle = '#4a90d9';
-  ctx.beginPath();
-  ctx.roundRect(btnX, btnY, btnWidth, btnHeight, 6);
-  ctx.fill();
-
-  ctx.fillStyle = '#fff';
-  ctx.font = `bold ${Math.floor(squareSize * 0.25)}px sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('Play Again', btnX + btnWidth / 2, btnY + btnHeight / 2);
+  restartButton = drawOverlayButton(cc, 'Play Again', 0.75);
 }
 
 export function isInsideButton(btn: ButtonRect, x: number, y: number): boolean {

@@ -121,6 +121,15 @@ function pickModifierForArmy(rng: RngFn, ownedPieceTypes: ReadonlySet<PieceType>
   return mod ? makeModifierItem(mod) : null;
 }
 
+function randomPieceItem(rng: RngFn): ShopItem | null {
+  const piece = pick(PIECE_POOL, rng);
+  return piece ? makePieceItem(piece) : null;
+}
+
+function pickWithPieceFallback(primary: ShopItem | null, rng: RngFn): ShopItem | null {
+  return primary ?? randomPieceItem(rng);
+}
+
 export function generateShopItems(
   rng: RngFn,
   armySlots: number,
@@ -131,15 +140,11 @@ export function generateShopItems(
 
   // Slot 1: piece or modifier
   if (rng() < 0.6) {
-    const piece = pick(PIECE_POOL, rng);
-    if (piece) items.push(makePieceItem(piece));
+    const item = randomPieceItem(rng);
+    if (item) items.push(item);
   } else {
-    const mod = pickModifierForArmy(rng, ownedPieceTypes);
-    if (mod) items.push(mod);
-    else {
-      const piece = pick(PIECE_POOL, rng);
-      if (piece) items.push(makePieceItem(piece));
-    }
+    const item = pickWithPieceFallback(pickModifierForArmy(rng, ownedPieceTypes), rng);
+    if (item) items.push(item);
   }
 
   // Slot 2: artifact upgrade, artifact, heal, or army slot
@@ -150,8 +155,7 @@ export function generateShopItems(
       items.push(upgrade);
     } else {
       const art = pickArtifact(rng, ownedArtifactIds);
-      if (art) items.push(art);
-      else items.push({ ...HEAL_ITEM });
+      items.push(art ?? { ...HEAL_ITEM });
     }
   } else if (roll2 < 0.7) {
     items.push({ ...HEAL_ITEM });
@@ -164,22 +168,14 @@ export function generateShopItems(
   // Slot 3: piece, modifier, or artifact
   const roll3 = rng();
   if (roll3 < 0.3) {
-    const piece3 = pick(PIECE_POOL, rng);
-    if (piece3) items.push(makePieceItem(piece3));
+    const item = randomPieceItem(rng);
+    if (item) items.push(item);
   } else if (roll3 < 0.6) {
-    const mod = pickModifierForArmy(rng, ownedPieceTypes);
-    if (mod) items.push(mod);
-    else {
-      const piece3 = pick(PIECE_POOL, rng);
-      if (piece3) items.push(makePieceItem(piece3));
-    }
+    const item = pickWithPieceFallback(pickModifierForArmy(rng, ownedPieceTypes), rng);
+    if (item) items.push(item);
   } else {
-    const art = pickArtifact(rng, ownedArtifactIds);
-    if (art) items.push(art);
-    else {
-      const piece3 = pick(PIECE_POOL, rng);
-      if (piece3) items.push(makePieceItem(piece3));
-    }
+    const item = pickWithPieceFallback(pickArtifact(rng, ownedArtifactIds), rng);
+    if (item) items.push(item);
   }
 
   return items;
@@ -193,8 +189,8 @@ export function generateReplacementItem(
 ): ShopItem {
   const roll = rng();
   if (roll < 0.35) {
-    const piece = pick(PIECE_POOL, rng);
-    if (piece) return makePieceItem(piece);
+    const item = randomPieceItem(rng);
+    if (item) return item;
   } else if (roll < 0.6) {
     const mod = pickModifierForArmy(rng, ownedPieceTypes);
     if (mod) return mod;
@@ -202,9 +198,8 @@ export function generateReplacementItem(
     const art = pickArtifact(rng, ownedArtifactIds);
     if (art) return art;
   }
-  // Fallback: random piece
-  const fallback = pick(PIECE_POOL, rng);
-  return fallback ? makePieceItem(fallback) : { ...HEAL_ITEM };
+  // Fallback: random piece or heal
+  return randomPieceItem(rng) ?? { ...HEAL_ITEM };
 }
 
 export const DEFAULT_ARMY_SLOTS = 6;

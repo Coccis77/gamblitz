@@ -20,8 +20,6 @@ export function computeThreatSquares(pieces: readonly Piece[]): Set<string> {
 
 const LIGHT_COLOR = '#e8d5b0';
 const DARK_COLOR = '#a87d52';
-const LIGHT_ACCENT = '#f0ddc0';
-const DARK_ACCENT = '#96703f';
 const SELECTED_COLOR = 'rgba(255, 230, 80, 0.5)';
 const MOVE_DOT_COLOR = 'rgba(60, 60, 60, 0.35)';
 const CAPTURE_COLOR = 'rgba(220, 50, 50, 0.4)';

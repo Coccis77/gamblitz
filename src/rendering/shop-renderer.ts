@@ -2,8 +2,9 @@ import { CanvasContext } from './canvas.js';
 import { ShopItem, MAX_ARMY_SLOTS } from '../systems/shop.js';
 import { Economy } from '../systems/economy.js';
 import { KingHP } from '../systems/king-hp.js';
-import { ArtifactSlots } from '../core/artifact.js';
+import { ArtifactSlots, RARITY_COLORS } from '../core/artifact.js';
 import { Piece, PieceType, PIECE_LABELS } from '../core/piece.js';
+import { getPieceImage } from './piece-images.js';
 import { MAX_MODIFIER_SLOTS } from '../core/modifier.js';
 import { Position, BOARD_SIZE } from '../utils/types.js';
 import { ButtonRect, drawInfoBar } from './ui-renderer.js';
@@ -170,7 +171,6 @@ export function drawShop(
 
     // Rarity dot (if artifact)
     if (item.rarity) {
-      const RARITY_COLORS: Record<string, string> = { common: '#ccc', uncommon: '#4a9fd9', rare: '#a855f7', legendary: '#f0c040' };
       const dotColor = RARITY_COLORS[item.rarity] ?? '#ccc';
       ctx.beginPath();
       ctx.arc(cardX + cardWidth - 12 - ctx.measureText(`${item.cost}g`).width - 12, nameY, 4, 0, Math.PI * 2);
@@ -207,8 +207,6 @@ export function drawShop(
     ctx.textBaseline = 'top';
     ctx.fillText(`Artifacts (${artifactSlots.artifacts.length}/${artifactSlots.maxSlots}) — click to discard`, boardOriginX + 8, afterCardsY);
     afterCardsY += artFont + 3;
-
-    const RARITY_COLORS: Record<string, string> = { common: '#ccc', uncommon: '#4a9fd9', rare: '#a855f7', legendary: '#f0c040' };
 
     for (let i = 0; i < artifactSlots.artifacts.length; i++) {
       const art = artifactSlots.artifacts[i]!;
@@ -310,19 +308,23 @@ export function drawShop(
           ctx.fillStyle = 'rgba(255, 255, 100, 0.4)';
           ctx.fillRect(cx, cy, gridCellSize, gridCellSize);
         }
-        const pr = gridCellSize * 0.36;
-        ctx.beginPath();
-        ctx.arc(cx + gridCellSize / 2, cy + gridCellSize / 2, pr, 0, Math.PI * 2);
-        ctx.fillStyle = '#4a90d9';
-        ctx.fill();
-        ctx.strokeStyle = isSelected ? '#ff0' : '#222';
-        ctx.lineWidth = isSelected ? 2 : 1;
-        ctx.stroke();
-        ctx.fillStyle = '#fff';
-        ctx.font = `bold ${Math.floor(gridCellSize * 0.38)}px sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(PIECE_LABELS[piece.type], cx + gridCellSize / 2, cy + gridCellSize / 2);
+        // Draw piece image or fallback
+        const img = getPieceImage('player', piece.type);
+        if (img) {
+          const pad = gridCellSize * 0.05;
+          if (isSelected) {
+            ctx.save();
+            ctx.globalAlpha = 0.85;
+          }
+          ctx.drawImage(img, cx + pad, cy + pad, gridCellSize - pad * 2, gridCellSize - pad * 2);
+          if (isSelected) ctx.restore();
+        } else {
+          ctx.fillStyle = isSelected ? '#ffe080' : '#f5f0e0';
+          ctx.font = `bold ${Math.floor(gridCellSize * 0.4)}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(PIECE_LABELS[piece.type], cx + gridCellSize / 2, cy + gridCellSize / 2);
+        }
 
         // Modifier count indicator
         if (piece.modifiers.length > 0) {
