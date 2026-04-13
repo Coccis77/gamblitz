@@ -7,6 +7,8 @@ export type TurnPhase = 'player_turn' | 'enemy_turn';
 export interface EnemyIntent {
   pieceId: string;
   move: Move;
+  /** For sliders: the direction of movement (dr, dc). Used to keep intent predictable. */
+  direction?: [number, number];
 }
 
 export interface EnPassantInfo {

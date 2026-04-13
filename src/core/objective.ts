@@ -18,10 +18,12 @@ export interface ObjectiveProgress {
   turnsElapsed: number;
   reachedRank: boolean;
   enemyKingDefeated: boolean;
+  initialEnemyCount: number;
+  enemyPawnsPromotedOff: number;
 }
 
 export function createObjectiveProgress(): ObjectiveProgress {
-  return { capturedCount: 0, turnsElapsed: 0, reachedRank: false, enemyKingDefeated: false };
+  return { capturedCount: 0, turnsElapsed: 0, reachedRank: false, enemyKingDefeated: false, initialEnemyCount: 0, enemyPawnsPromotedOff: 0 };
 }
 
 export function describeObjective(obj: ObjectiveType): string {
@@ -42,11 +44,12 @@ export function isObjectiveComplete(
 ): boolean {
   switch (obj.kind) {
     case 'capture_all':
-      return pieces.filter(p => p.owner === 'enemy').length === 0;
+      return progress.capturedCount + progress.enemyPawnsPromotedOff >= progress.initialEnemyCount;
     case 'capture_type':
+      // Still check the board — promoted pawns change type, so board check is fine for non-pawn types
       return pieces.filter(p => p.owner === 'enemy' && p.type === obj.pieceType).length === 0;
     case 'survive':
-      return progress.turnsElapsed >= obj.turns || pieces.filter(p => p.owner === 'enemy').length === 0;
+      return progress.turnsElapsed >= obj.turns || progress.capturedCount + progress.enemyPawnsPromotedOff >= progress.initialEnemyCount;
     case 'capture_count':
       return progress.capturedCount >= obj.count;
     case 'promote_pawn':

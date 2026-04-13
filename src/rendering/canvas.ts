@@ -9,7 +9,7 @@ export interface CanvasContext {
 }
 
 const CANVAS_PADDING = 40;
-const HUD_TOP = 56;
+const HUD_TOP = 74;
 const HUD_BOTTOM = 70;
 
 export function initCanvas(canvasId: string): CanvasContext {

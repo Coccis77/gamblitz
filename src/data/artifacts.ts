@@ -21,7 +21,7 @@ export const ALL_ARTIFACTS: ArtifactDef[] = [
   {
     id: 'iron_boots',
     name: 'Iron Boots',
-    description: 'Pawns can always double-step',
+    description: 'Pawns can move 2 forward every turn',
     rarity: 'common',
     effect: { kind: 'pawn_double_step_always' },
     isStarter: true,
@@ -72,13 +72,6 @@ export const ALL_ARTIFACTS: ArtifactDef[] = [
     rarity: 'uncommon',
     effect: { kind: 'pawn_capture_backward' },
     isStarter: true,
-  },
-  {
-    id: 'iron_shield',
-    name: 'Iron Shield',
-    description: '+1 max king HP',
-    rarity: 'uncommon',
-    effect: { kind: 'king_max_hp', amount: 1 },
   },
   {
     id: 'bounty_hunter',
@@ -136,7 +129,7 @@ export const ALL_ARTIFACTS: ArtifactDef[] = [
   {
     id: 'war_banner',
     name: 'War Banner',
-    description: '+1 extra move and +1 gold per capture',
+    description: '+1 extra move per turn',
     rarity: 'legendary',
     effect: { kind: 'extra_move', amount: 1 },
   },
@@ -161,8 +154,8 @@ export const ARTIFACT_UPGRADES: ArtifactUpgrade[] = [
   },
   {
     baseArtifactId: 'iron_boots',
-    upgraded: { id: 'iron_boots_v2', name: 'Winged Boots', description: 'Pawns always double-step and capture backward', rarity: 'rare', effect: { kind: 'pawn_double_step_always' } },
-    cost: 10,
+    upgraded: { id: 'iron_boots_v2', name: 'Winged Boots', description: 'Pawns move 2 forward every turn + capture backward', rarity: 'rare', effect: { kind: 'pawn_double_step_always' } },
+    cost: 12,
   },
   {
     baseArtifactId: 'swift_command',
@@ -172,7 +165,7 @@ export const ARTIFACT_UPGRADES: ArtifactUpgrade[] = [
   {
     baseArtifactId: 'lucky_coin',
     upgraded: { id: 'lucky_coin_v2', name: 'Lucky Charm', description: '50% chance to heal on capture', rarity: 'rare', effect: { kind: 'capture_heals', chance: 0.5 } },
-    cost: 10,
+    cost: 8,
   },
   {
     baseArtifactId: 'retreat_pawn',

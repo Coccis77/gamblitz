@@ -147,6 +147,51 @@ export function getLegalMoves(
   return moves;
 }
 
+/**
+ * Get all squares a piece could potentially capture on.
+ * For slides, stops at friendly pieces but marks all reachable squares where canCapture is true.
+ * For pawns, only returns diagonal capture squares (not forward moves).
+ */
+export function getAttackSquares(piece: Piece, allPieces: readonly Piece[]): Position[] {
+  const abilities = getAbilities(piece);
+  const squares: Position[] = [];
+  const friendlyPositions = new Set(
+    allPieces.filter(p => p.owner === piece.owner && p.id !== piece.id)
+      .map(p => `${p.position.row},${p.position.col}`),
+  );
+
+  for (const ability of abilities) {
+    if (!ability.canCapture) continue;
+    if (ability.condition && !meetsCondition(piece, ability.condition)) continue;
+    const dirs = resolveDirections(ability.directions, piece.owner);
+
+    if (ability.type === 'slide') {
+      const maxRange = ability.maxRange ?? BOARD_SIZE;
+      for (const [dr, dc] of dirs) {
+        for (let dist = 1; dist <= maxRange; dist++) {
+          const r = piece.position.row + dr * dist;
+          const c = piece.position.col + dc * dist;
+          if (!isInBounds({ row: r, col: c })) break;
+          if (friendlyPositions.has(`${r},${c}`)) break;
+          squares.push({ row: r, col: c });
+        }
+      }
+    } else {
+      // step and jump: just check each direction at maxRange
+      const maxRange = ability.maxRange ?? 1;
+      for (const [dr, dc] of dirs) {
+        const r = piece.position.row + dr * maxRange;
+        const c = piece.position.col + dc * maxRange;
+        if (isInBounds({ row: r, col: c }) && !friendlyPositions.has(`${r},${c}`)) {
+          squares.push({ row: r, col: c });
+        }
+      }
+    }
+  }
+
+  return squares;
+}
+
 function pieceAt(pos: Position, allPieces: readonly Piece[]): Piece | undefined {
   return allPieces.find(p => positionEquals(p.position, pos));
 }

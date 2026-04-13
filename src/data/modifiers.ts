@@ -26,6 +26,14 @@ export const ALL_MODIFIERS: ModifierDef[] = [
     pieceType: 'pawn',
     ability: { type: 'step', directions: 'diagonal', maxRange: 1, canCapture: false, canMoveWithoutCapture: true },
   },
+  {
+    id: 'pawn_flanker',
+    name: 'Pawn Flanker',
+    description: 'Pawn can step 1 backward diagonally',
+    cost: 3,
+    pieceType: 'pawn',
+    ability: { type: 'step', directions: 'backward-diagonal', maxRange: 1, canCapture: true, canMoveWithoutCapture: true },
+  },
 
   // ─── Knight ────────────────────────────────────
   {
@@ -44,21 +52,29 @@ export const ALL_MODIFIERS: ModifierDef[] = [
     pieceType: 'knight',
     ability: { type: 'slide', directions: 'diagonal', canCapture: true, canMoveWithoutCapture: true },
   },
+  {
+    id: 'knight_charge',
+    name: 'Knight Charge',
+    description: 'Knight can slide up to 2 forward',
+    cost: 5,
+    pieceType: 'knight',
+    ability: { type: 'slide', directions: 'forward', maxRange: 2, canCapture: true, canMoveWithoutCapture: true },
+  },
 
   // ─── Bishop ────────────────────────────────────
   {
-    id: 'bishop_long_diagonal',
-    name: 'Far Sight',
-    description: 'Bishop slides up to 2 orthogonally',
-    cost: 5,
+    id: 'bishop_guard',
+    name: "Bishop's Guard",
+    description: 'Bishop can step 1 square in any direction',
+    cost: 4,
     pieceType: 'bishop',
-    ability: { type: 'slide', directions: 'orthogonal', maxRange: 2, canCapture: true, canMoveWithoutCapture: true },
+    ability: { type: 'step', directions: 'all', maxRange: 1, canCapture: true, canMoveWithoutCapture: true },
   },
   {
     id: 'bishop_knight_jump',
     name: 'Holy Leap',
     description: 'Bishop gains knight jump',
-    cost: 6,
+    cost: 5,
     pieceType: 'bishop',
     ability: { type: 'jump', directions: 'knight', maxRange: 1, canCapture: true, canMoveWithoutCapture: true },
   },
@@ -91,18 +107,10 @@ export const ALL_MODIFIERS: ModifierDef[] = [
 
   // ─── Queen ─────────────────────────────────────
   {
-    id: 'queen_knight_jump',
-    name: 'Royal Chariot',
-    description: 'Queen gains knight jump',
-    cost: 8,
-    pieceType: 'queen',
-    ability: { type: 'jump', directions: 'knight', maxRange: 1, canCapture: true, canMoveWithoutCapture: true },
-  },
-  {
     id: 'queen_long_jump',
     name: 'Royal Leap',
     description: 'Queen can jump like a knight',
-    cost: 8,
+    cost: 6,
     pieceType: 'queen',
     ability: { type: 'jump', directions: 'knight', maxRange: 1, canCapture: true, canMoveWithoutCapture: true },
   },
@@ -112,7 +120,7 @@ export const ALL_MODIFIERS: ModifierDef[] = [
     id: 'king_knight_jump',
     name: "King's Escape",
     description: 'King gains knight jump',
-    cost: 5,
+    cost: 7,
     pieceType: 'king',
     ability: { type: 'jump', directions: 'knight', maxRange: 1, canCapture: true, canMoveWithoutCapture: true },
   },

@@ -195,6 +195,9 @@ export function buildGameStateForLevel(level: LevelState, run: RunState, rng: Rn
   const allPieces = [...level.playerArmy, ...enemies];
   const state = createGameState(allPieces);
 
+  // Track initial enemy count for objective completion
+  level.progress.initialEnemyCount = enemies.length;
+
   const extraMoves = getArtifactEffectValue(level.artifactSlots, 'extra_move');
   if (extraMoves > 0) {
     state.maxMovesPerTurn += extraMoves;
@@ -246,7 +249,7 @@ function applyArtifactMovementBonuses(level: LevelState): void {
 
     if (piece.type === 'pawn' && hasArtifactEffect(arts, 'pawn_double_step_always')) {
       piece.modifiers.push({
-        id: 'artifact_pawn_double', name: 'Iron Boots', description: 'Always double-step (artifact)',
+        id: 'artifact_pawn_double', name: 'Iron Boots', description: 'Move 2 forward every turn (artifact)',
         cost: 0, pieceType: 'pawn',
         ability: { type: 'slide', directions: 'forward', maxRange: 2, canCapture: false, canMoveWithoutCapture: true },
       });

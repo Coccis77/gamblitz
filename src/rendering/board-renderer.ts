@@ -1,6 +1,6 @@
 import { Position, BOARD_SIZE } from '../utils/types.js';
 import { getSquareColor, positionEquals } from '../core/board.js';
-import { Move, getLegalMoves } from '../core/movement.js';
+import { Move, getAttackSquares } from '../core/movement.js';
 import { Piece } from '../core/piece.js';
 import { CanvasContext, boardToPixel } from './canvas.js';
 
@@ -10,9 +10,9 @@ export function computeThreatSquares(pieces: readonly Piece[]): Set<string> {
   const threats = new Set<string>();
   const enemies = pieces.filter(p => p.owner === 'enemy');
   for (const enemy of enemies) {
-    const moves = getLegalMoves(enemy, pieces);
-    for (const move of moves) {
-      threats.add(`${move.to.row},${move.to.col}`);
+    const attacks = getAttackSquares(enemy, pieces);
+    for (const sq of attacks) {
+      threats.add(`${sq.row},${sq.col}`);
     }
   }
   return threats;

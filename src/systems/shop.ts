@@ -40,10 +40,10 @@ function makePieceItem(entry: { type: PieceType; name: string; cost: number }): 
 }
 
 const ARTIFACT_COSTS: Record<string, number> = {
-  common: 4,
-  uncommon: 7,
-  rare: 10,
-  legendary: 15,
+  common: 3,
+  uncommon: 6,
+  rare: 9,
+  legendary: 13,
 };
 
 function makeArtifactItem(def: ArtifactDef): ShopItem {

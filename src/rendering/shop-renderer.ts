@@ -188,40 +188,46 @@ export function drawShop(
     ctx.fillText(item.description, cardX + 12, descY);
   }
 
-  // --- Owned artifacts ---
+  // --- Owned artifacts (compact 2-column grid) ---
   artifactRects = [];
-  let afterCardsY = cardsStartY + items.length * (cardHeight + cardGap) + 6;
+  let afterCardsY = cardsStartY + items.length * (cardHeight + cardGap) + 4;
 
   if (artifactSlots.artifacts.length > 0) {
-    const artFont = Math.max(11, Math.floor(squareSize * 0.16));
-    const artH = artFont + 8;
-    const artLabel = `Artifacts (${artifactSlots.artifacts.length}/${artifactSlots.maxSlots}) — click to discard`;
-    ctx.fillStyle = '#888';
+    const artFont = Math.max(10, Math.floor(squareSize * 0.14));
+    const artH = artFont + 6;
+    const cols = 2;
+    const artGap = 4;
+    const colWidth = Math.floor((boardPixels * 0.85 - artGap) / cols);
+    const gridX = boardOriginX + (boardPixels - colWidth * cols - artGap) / 2;
+
+    // Label
+    ctx.fillStyle = '#666';
     ctx.font = `${artFont}px sans-serif`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.fillText(artLabel, boardOriginX + 8, afterCardsY);
-    afterCardsY += artFont + 4;
+    ctx.fillText(`Artifacts (${artifactSlots.artifacts.length}/${artifactSlots.maxSlots}) — click to discard`, boardOriginX + 8, afterCardsY);
+    afterCardsY += artFont + 3;
 
-    const artWidth = Math.floor(boardPixels * 0.85);
+    const RARITY_COLORS: Record<string, string> = { common: '#ccc', uncommon: '#4a9fd9', rare: '#a855f7', legendary: '#f0c040' };
+
     for (let i = 0; i < artifactSlots.artifacts.length; i++) {
       const art = artifactSlots.artifacts[i]!;
-      const ax = boardOriginX + (boardPixels - artWidth) / 2;
-      const ay = afterCardsY + i * (artH + 2);
-
-      const RARITY_COLORS: Record<string, string> = { common: '#ccc', uncommon: '#4a9fd9', rare: '#a855f7', legendary: '#f0c040' };
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const ax = gridX + col * (colWidth + artGap);
+      const ay = afterCardsY + row * (artH + 2);
       const rarCol = RARITY_COLORS[art.rarity] ?? '#ccc';
 
       ctx.fillStyle = '#1e1e30';
       ctx.beginPath();
-      ctx.roundRect(ax, ay, artWidth, artH, 4);
+      ctx.roundRect(ax, ay, colWidth, artH, 3);
       ctx.fill();
 
-      artifactRects.push({ x: ax, y: ay, width: artWidth, height: artH, index: i });
+      artifactRects.push({ x: ax, y: ay, width: colWidth, height: artH, index: i });
 
-      // Rarity dot + name + description
+      // Rarity dot + name
       ctx.beginPath();
-      ctx.arc(ax + 10, ay + artH / 2, 4, 0, Math.PI * 2);
+      ctx.arc(ax + 8, ay + artH / 2, 3, 0, Math.PI * 2);
       ctx.fillStyle = rarCol;
       ctx.fill();
 
@@ -229,20 +235,16 @@ export function drawShop(
       ctx.font = `bold ${artFont}px sans-serif`;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      ctx.fillText(art.name, ax + 20, ay + artH / 2);
+      ctx.fillText(art.name, ax + 16, ay + artH / 2);
 
-      const nameW = ctx.measureText(art.name).width;
-      ctx.fillStyle = '#777';
-      ctx.font = `${Math.floor(artFont * 0.85)}px sans-serif`;
-      ctx.fillText(` - ${art.description}`, ax + 20 + nameW, ay + artH / 2);
-
-      // X button hint
+      // X button
       ctx.fillStyle = '#555';
-      ctx.font = `bold ${artFont}px sans-serif`;
       ctx.textAlign = 'right';
-      ctx.fillText('\u2715', ax + artWidth - 8, ay + artH / 2);
+      ctx.fillText('\u2715', ax + colWidth - 6, ay + artH / 2);
     }
-    afterCardsY += artifactSlots.artifacts.length * (artH + 2) + 4;
+
+    const totalRows = Math.ceil(artifactSlots.artifacts.length / cols);
+    afterCardsY += totalRows * (artH + 2) + 2;
   }
 
   // --- Army grid (bottom 2 rows) ---

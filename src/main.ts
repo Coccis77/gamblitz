@@ -42,7 +42,7 @@ import {
 } from './systems/level.js';
 import {
   Economy, createEconomy, earnGold, spendGold,
-  GOLD_PER_CAPTURE, GOLD_LEVEL_COMPLETE, GOLD_BOSS_COMPLETE,
+  GOLD_PER_CAPTURE, getCompletionGold,
 } from './systems/economy.js';
 import { ShopItem, generateShopItems, generateReplacementItem, MAX_ARMY_SLOTS } from './systems/shop.js';
 import { BOARD_SIZE, Position } from './utils/types.js';
@@ -82,6 +82,8 @@ function startNewRun(seed?: number): void {
   state = buildGameStateForLevel(level, run, rng);
   selection = createSelectionState();
   promotionRecords = [];
+  teleportChoices = null;
+  teleportKingId = null;
 
   // Pick 2 random artifacts for draft (starters only)
   const starters = ALL_ARTIFACTS.filter(a => a.isStarter);
@@ -96,9 +98,20 @@ function finishDraft(): void {
 }
 
 function startNextLevel(): void {
+  // Clear any pending teleport state
+  teleportChoices = null;
+  teleportKingId = null;
+
   // Revert promotions before carrying army over
   revertPromotions(level.playerArmy, promotionRecords);
   promotionRecords = [];
+
+  // Reset king position if it's off-board from a hit
+  for (const piece of level.playerArmy) {
+    if (piece.position.row < 0 || piece.position.col < 0) {
+      piece.position = { ...piece.lockedPosition };
+    }
+  }
 
   const persisted = {
     playerKingHP: level.playerKingHP,
@@ -310,7 +323,10 @@ function performMove(move: Move): boolean {
           }
         }
 
-        onPieceCaptured(level);
+        // Only count as a capture if the king was actually defeated
+        if (level.progress.enemyKingDefeated || level.gameOver) {
+          onPieceCaptured(level);
+        }
         onCaptureRewards();
         return !level.gameOver;
       }
@@ -318,6 +334,7 @@ function performMove(move: Move): boolean {
   }
 
   const movingPiece = state.pieces.find(p => positionEquals(p.position, move.from));
+  const isPlayerCapture = movingPiece?.owner === 'player' && !!move.capturedPieceId;
   if (movingPiece) {
     startMoveAnimation(movingPiece.id, move.from, move.to);
   }
@@ -325,7 +342,9 @@ function performMove(move: Move): boolean {
   executeMove(move, state.pieces);
   if (hadCapture) {
     addFlash(move.to, 'rgb(255, 50, 50)');
-    onPieceCaptured(level);
+    if (isPlayerCapture) {
+      onPieceCaptured(level);
+    }
     onCaptureRewards();
   }
   return true;
@@ -357,9 +376,6 @@ function onCaptureRewards(): void {
 
 function checkObjectiveAndVictory(): void {
   checkLevelComplete(level, state.pieces);
-  if (level.completed && level.template.levelType === 'boss') {
-    level.victory = true;
-  }
 }
 
 function render(): void {
@@ -418,12 +434,22 @@ function render(): void {
       ctx.lineWidth = 2;
       ctx.strokeRect(sx + 1, sy + 1, squareSize - 2, squareSize - 2);
     }
-    // Label
+    // Banner on top of the board
+    const bannerH = Math.floor(squareSize * 0.45);
+    const bannerY = boardOriginY + 4;
+    const boardW = squareSize * BOARD_SIZE;
+    ctx.fillStyle = 'rgba(10, 10, 30, 0.85)';
+    ctx.beginPath();
+    ctx.roundRect(boardOriginX + 4, bannerY, boardW - 8, bannerH, 6);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(100, 180, 255, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
     ctx.fillStyle = '#8cf';
-    ctx.font = `bold ${Math.floor(squareSize * 0.2)}px sans-serif`;
+    ctx.font = `bold ${Math.floor(squareSize * 0.22)}px sans-serif`;
     ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText('Choose where your King teleports', boardOriginX + squareSize * 3, boardOriginY - 4);
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Click a blue square to teleport your King', boardOriginX + boardW / 2, bannerY + bannerH / 2);
   }
 
   drawHUD(cc, state, level, economy, run.rank, selection.selectedPiece);
@@ -438,7 +464,12 @@ function render(): void {
 
   if (level.gameOver) drawGameOver(cc, runStats);
   else if (level.victory) drawVictory(cc, runStats);
-  else if (level.completed) drawLevelComplete(cc, level.progress.capturedCount * 2, level.progress.capturedCount);
+  else if (level.completed) {
+    const completionGold = getCompletionGold(state.turnNumber, level.template.levelType);
+    const captureGold = level.progress.capturedCount * GOLD_PER_CAPTURE;
+    const isBoss = level.template.levelType === 'boss';
+    drawLevelComplete(cc, completionGold + captureGold, level.progress.capturedCount, isBoss, isBoss ? run.rank + 1 : undefined);
+  }
 
   // Artifact tooltip
   if (hoveredArtifact && screen === 'level') {
@@ -498,7 +529,12 @@ function executeEnemyTurn(): void {
     if (level.gameOver) { render(); return; }
 
     if (i >= intents.length) {
-      const promoted = checkEnemyPawnPromotion(state.pieces, level.template.levelType === 'boss');
+      const isBoss = level.template.levelType === 'boss';
+      const promoted = checkEnemyPawnPromotion(state.pieces, isBoss);
+      if (!isBoss) {
+        // Non-boss: pawns were removed, count toward objectives
+        level.progress.enemyPawnsPromotedOff += promoted.length;
+      }
       for (const _ of promoted) {
         const playerKing = state.pieces.find(p => p.owner === 'player' && p.type === 'king');
         if (playerKing) {
@@ -758,15 +794,10 @@ function onClick(e: MouseEvent): void {
     return;
   }
 
-  if (level.victory) {
-    if (isInsideButton(getRestartButton(), x, y)) { fadeToRestart(); }
-    return;
-  }
-
   if (level.completed) {
     if (isInsideButton(getNextLevelButton(), x, y)) {
       // Award gold for completing the level
-      const bonus = level.template.levelType === 'boss' ? GOLD_BOSS_COMPLETE : GOLD_LEVEL_COMPLETE;
+      const bonus = getCompletionGold(state.turnNumber, level.template.levelType);
       const artifactBonus = getArtifactEffectValue(level.artifactSlots, 'gold_per_level');
       const totalBonus = bonus + artifactBonus;
       earnGold(economy, totalBonus);

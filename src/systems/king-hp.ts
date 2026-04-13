@@ -1,7 +1,7 @@
 import { Position, BOARD_SIZE } from '../utils/types.js';
 import { isInBounds } from '../core/board.js';
 import { Piece } from '../core/piece.js';
-import { getLegalMoves } from '../core/movement.js';
+import { getAttackSquares } from '../core/movement.js';
 import { RngFn, pick } from '../utils/rng.js';
 
 export interface KingHP {
@@ -36,14 +36,14 @@ export function findSafeSquares(
   const enemies = otherPieces.filter(p => p.owner !== king.owner);
   const occupied = new Set(otherPieces.map(p => `${p.position.row},${p.position.col}`));
 
-  // Compute all squares threatened by enemy pieces using actual legal moves
+  // Compute all squares where enemy pieces can capture
   const threatened = new Set<string>();
   for (const enemy of enemies) {
-    const moves = getLegalMoves(enemy, otherPieces);
-    for (const m of moves) {
-      threatened.add(`${m.to.row},${m.to.col}`);
+    const attacks = getAttackSquares(enemy, otherPieces);
+    for (const sq of attacks) {
+      threatened.add(`${sq.row},${sq.col}`);
     }
-    // Also mark the enemy's own square as threatened (can't land on it)
+    // Also mark the enemy's own square (can't land on an enemy)
     threatened.add(`${enemy.position.row},${enemy.position.col}`);
   }
 

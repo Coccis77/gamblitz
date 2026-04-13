@@ -138,8 +138,13 @@ export function drawHUD(cc: CanvasContext, state: GameState, level: LevelState, 
   const boardRight = boardOriginX + squareSize * BOARD_SIZE;
   const fontSize = Math.max(14, Math.floor(squareSize * 0.22));
 
+  // Use consistent font and even spacing for all 3 rows
+  const rowH = Math.floor((boardOriginY - 6) / 3);
+  const row1Y = rowH;
+  const row2Y = rowH * 2;
+  const row3Y = boardOriginY - 6;
+
   // --- Row 1: info bar (King HP, gold, army, artifacts, boss HP) ---
-  const row1Y = boardOriginY - 38;
   drawInfoBar(ctx, boardOriginX, row1Y, boardRight - boardOriginX, fontSize, {
     kingHP: level.playerKingHP,
     gold: economy.gold,
@@ -150,21 +155,21 @@ export function drawHUD(cc: CanvasContext, state: GameState, level: LevelState, 
     bossHP: level.enemyKingHP,
   });
 
-  // --- Row 2: level/turn + objective + moves ---
-  const smallFont = Math.max(11, Math.floor(squareSize * 0.17));
-  ctx.font = `${smallFont}px sans-serif`;
-  ctx.textBaseline = 'bottom';
+  // --- Row 2: level tag + turn + moves ---
+  ctx.font = `bold ${fontSize}px sans-serif`;
+  ctx.textBaseline = 'alphabetic';
 
-  // Left: level info + objective
-  ctx.fillStyle = '#999';
-  ctx.textAlign = 'left';
-  const levelTag = `${rank ? `R${rank}` : ''} ${level.template.levelType.toUpperCase()}`;
+  const levelTag = `${rank ? `R${rank}` : ''} ${level.template.levelType.toUpperCase()}: ${level.template.name}`;
   ctx.fillStyle = '#777';
-  ctx.font = `bold ${smallFont}px sans-serif`;
-  ctx.fillText(levelTag, boardOriginX, boardOriginY - 6);
-  const tagW = ctx.measureText(levelTag).width;
+  ctx.textAlign = 'left';
+  ctx.fillText(levelTag, boardOriginX, row2Y);
 
-  // Objective progress indicator
+  const turnPhase = state.phase === 'player_turn' ? 'YOUR TURN' : 'ENEMY';
+  ctx.fillStyle = '#999';
+  ctx.textAlign = 'right';
+  ctx.fillText(`T${state.turnNumber} ${turnPhase}  Moves: ${state.movesRemaining}/${state.maxMovesPerTurn}`, boardRight, row2Y);
+
+  // --- Row 3: objective with progress ---
   const objType = level.objective.type;
   let progressStr = '';
   if (objType.kind === 'capture_all') {
@@ -182,15 +187,10 @@ export function drawHUD(cc: CanvasContext, state: GameState, level: LevelState, 
   }
 
   ctx.fillStyle = '#bbb';
-  ctx.font = `${smallFont}px sans-serif`;
-  ctx.fillText(`  ${level.objective.description}${progressStr}`, boardOriginX + tagW, boardOriginY - 6);
-
-  // Right: turn + moves
-  ctx.fillStyle = '#999';
-  ctx.textAlign = 'right';
-  ctx.font = `bold ${smallFont}px sans-serif`;
-  const turnPhase = state.phase === 'player_turn' ? 'YOUR TURN' : 'ENEMY';
-  ctx.fillText(`T${state.turnNumber} ${turnPhase}  Moves: ${state.movesRemaining}/${state.maxMovesPerTurn}`, boardRight, boardOriginY - 6);
+  ctx.font = `${fontSize}px sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText(`Objective: ${level.objective.description}${progressStr}`, boardOriginX, row3Y);
 
   // Bottom line: selected piece modifiers OR owned artifacts
   const line2Font = Math.max(11, Math.floor(squareSize * 0.16));
@@ -303,28 +303,42 @@ function drawOverlay(
   ctx.fillText(btnLabel, btnX + btnWidth / 2, btnY + btnHeight / 2);
 }
 
-export function drawLevelComplete(cc: CanvasContext, goldEarned: number, piecesCaptured: number): void {
+export function drawLevelComplete(cc: CanvasContext, goldEarned: number, piecesCaptured: number, isBoss?: boolean, nextRank?: number): void {
   const { ctx, squareSize, boardOriginX, boardOriginY } = cc;
   const boardPixels = squareSize * BOARD_SIZE;
   const centerX = boardOriginX + boardPixels / 2;
 
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
   ctx.fillRect(boardOriginX, boardOriginY, boardPixels, boardPixels);
 
   const bigFont = Math.floor(squareSize * 0.5);
-  ctx.fillStyle = '#4adf4a';
-  ctx.font = `bold ${bigFont}px sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('LEVEL COMPLETE', centerX, boardOriginY + boardPixels * 0.28);
+
+  if (isBoss) {
+    // Boss defeated — special message
+    ctx.fillStyle = '#f0c040';
+    ctx.font = `bold ${bigFont}px sans-serif`;
+    ctx.fillText('BOSS DEFEATED!', centerX, boardOriginY + boardPixels * 0.22);
+
+    const subFont = Math.floor(squareSize * 0.22);
+    ctx.fillStyle = '#aaa';
+    ctx.font = `${subFont}px sans-serif`;
+    ctx.fillText(`Rank ${nextRank} begins...`, centerX, boardOriginY + boardPixels * 0.32);
+  } else {
+    ctx.fillStyle = '#4adf4a';
+    ctx.font = `bold ${bigFont}px sans-serif`;
+    ctx.fillText('LEVEL COMPLETE', centerX, boardOriginY + boardPixels * 0.25);
+  }
 
   // Stats
+  const statsY = isBoss ? 0.42 : 0.40;
   const statFont = Math.floor(squareSize * 0.25);
   ctx.font = `${statFont}px sans-serif`;
   ctx.fillStyle = '#f0c040';
-  ctx.fillText(`+${goldEarned}g earned`, centerX, boardOriginY + boardPixels * 0.42);
+  ctx.fillText(`+${goldEarned}g earned`, centerX, boardOriginY + boardPixels * statsY);
   ctx.fillStyle = '#ccc';
-  ctx.fillText(`${piecesCaptured} pieces captured`, centerX, boardOriginY + boardPixels * 0.50);
+  ctx.fillText(`${piecesCaptured} pieces captured`, centerX, boardOriginY + boardPixels * (statsY + 0.08));
 
   // Next Level button
   const btnWidth = squareSize * 2.5;
