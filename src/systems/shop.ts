@@ -23,11 +23,11 @@ export interface ShopItem {
 }
 
 const PIECE_POOL: { type: PieceType; name: string; cost: number }[] = [
-  { type: 'pawn', name: 'Pawn', cost: 2 },
-  { type: 'knight', name: 'Knight', cost: 5 },
-  { type: 'bishop', name: 'Bishop', cost: 5 },
-  { type: 'rook', name: 'Rook', cost: 7 },
-  { type: 'queen', name: 'Queen', cost: 12 },
+  { type: 'pawn', name: 'Pawn', cost: 3 },
+  { type: 'knight', name: 'Knight', cost: 8 },
+  { type: 'bishop', name: 'Bishop', cost: 8 },
+  { type: 'rook', name: 'Rook', cost: 14 },
+  { type: 'queen', name: 'Queen', cost: 20 },
 ];
 
 function makePieceItem(entry: { type: PieceType; name: string; cost: number }): ShopItem {
@@ -40,10 +40,10 @@ function makePieceItem(entry: { type: PieceType; name: string; cost: number }): 
 }
 
 const ARTIFACT_COSTS: Record<string, number> = {
-  common: 3,
-  uncommon: 6,
-  rare: 9,
-  legendary: 13,
+  common: 5,
+  uncommon: 9,
+  rare: 14,
+  legendary: 20,
 };
 
 function makeArtifactItem(def: ArtifactDef): ShopItem {
@@ -73,14 +73,14 @@ const HEAL_ITEM: ShopItem = {
   type: { kind: 'heal', amount: 1 },
   name: 'King Heal',
   description: 'Restore 1 HP to your king',
-  cost: 4,
+  cost: 7,
 };
 
 const ARMY_SLOT_ITEM: ShopItem = {
   type: { kind: 'army_slot' },
   name: 'Army Slot',
   description: '+1 army slot (max 9)',
-  cost: 6,
+  cost: 10,
 };
 
 function pickArtifact(rng: RngFn, ownedIds: ReadonlySet<string>): ShopItem | null {

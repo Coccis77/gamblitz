@@ -146,12 +146,13 @@ export function drawShop(
     let icon = '';
     let iconColor = '#888';
     switch (item.type.kind) {
-      case 'piece':    icon = '\u265F'; iconColor = '#4a90d9'; break; // pawn symbol
-      case 'modifier': icon = '\u2726'; iconColor = '#a855f7'; break; // diamond
-      case 'artifact': icon = '\u2605'; iconColor = '#f0c040'; break; // star
-      case 'heal':     icon = '\u2665'; iconColor = '#e55';    break; // heart
-      case 'army_slot':icon = '\u2795'; iconColor = '#4a90d9'; break; // plus
-      case 'extra_move':icon = '\u27A1'; iconColor = '#4adf4a'; break; // arrow
+      case 'piece':          icon = '\u265F'; iconColor = '#4a90d9'; break;
+      case 'modifier':       icon = '\u2726'; iconColor = '#a855f7'; break;
+      case 'artifact':       icon = '\u2605'; iconColor = '#f0c040'; break;
+      case 'artifact_upgrade': icon = '\u2B06'; iconColor = '#4adf4a'; break;
+      case 'heal':           icon = '\u2665'; iconColor = '#e55';    break;
+      case 'army_slot':      icon = '\u2795'; iconColor = '#4a90d9'; break;
+      case 'extra_move':     icon = '\u27A1'; iconColor = '#4adf4a'; break;
     }
 
     ctx.fillStyle = canBuy ? iconColor : '#444';
@@ -193,12 +194,10 @@ export function drawShop(
   let afterCardsY = cardsStartY + items.length * (cardHeight + cardGap) + 4;
 
   if (artifactSlots.artifacts.length > 0) {
-    const artFont = Math.max(10, Math.floor(squareSize * 0.14));
-    const artH = artFont + 6;
-    const cols = 2;
-    const artGap = 4;
-    const colWidth = Math.floor((boardPixels * 0.85 - artGap) / cols);
-    const gridX = boardOriginX + (boardPixels - colWidth * cols - artGap) / 2;
+    const artFont = Math.max(10, Math.floor(squareSize * 0.13));
+    const artH = artFont * 2 + 8;
+    const artWidth = Math.floor(boardPixels * 0.85);
+    const artX = boardOriginX + (boardPixels - artWidth) / 2;
 
     // Label
     ctx.fillStyle = '#666';
@@ -210,39 +209,48 @@ export function drawShop(
 
     for (let i = 0; i < artifactSlots.artifacts.length; i++) {
       const art = artifactSlots.artifacts[i]!;
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      const ax = gridX + col * (colWidth + artGap);
-      const ay = afterCardsY + row * (artH + 2);
+      const ay = afterCardsY + i * (artH + 2);
       const rarCol = RARITY_COLORS[art.rarity] ?? '#ccc';
 
       ctx.fillStyle = '#1e1e30';
       ctx.beginPath();
-      ctx.roundRect(ax, ay, colWidth, artH, 3);
+      ctx.roundRect(artX, ay, artWidth, artH, 3);
       ctx.fill();
 
-      artifactRects.push({ x: ax, y: ay, width: colWidth, height: artH, index: i });
-
-      // Rarity dot + name
+      // Rarity dot + name (top line)
       ctx.beginPath();
-      ctx.arc(ax + 8, ay + artH / 2, 3, 0, Math.PI * 2);
+      ctx.arc(artX + 8, ay + artFont / 2 + 3, 3, 0, Math.PI * 2);
       ctx.fillStyle = rarCol;
       ctx.fill();
 
       ctx.fillStyle = rarCol;
       ctx.font = `bold ${artFont}px sans-serif`;
       ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(art.name, ax + 16, ay + artH / 2);
+      ctx.textBaseline = 'top';
+      ctx.fillText(art.name, artX + 16, ay + 3);
 
-      // X button
-      ctx.fillStyle = '#555';
-      ctx.textAlign = 'right';
-      ctx.fillText('\u2715', ax + colWidth - 6, ay + artH / 2);
+      // Effect description (bottom line)
+      ctx.fillStyle = '#888';
+      ctx.font = `${artFont}px sans-serif`;
+      ctx.fillText(art.description, artX + 16, ay + artFont + 5);
+
+      // X discard button (only this area is clickable)
+      const xBtnSize = artH;
+      const xBtnX = artX + artWidth - xBtnSize;
+      ctx.fillStyle = 'rgba(255, 80, 80, 0.15)';
+      ctx.beginPath();
+      ctx.roundRect(xBtnX, ay, xBtnSize, artH, [0, 3, 3, 0]);
+      ctx.fill();
+      ctx.fillStyle = '#888';
+      ctx.font = `bold ${Math.floor(artFont * 1.2)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('\u2715', xBtnX + xBtnSize / 2, ay + artH / 2);
+
+      artifactRects.push({ x: xBtnX, y: ay, width: xBtnSize, height: artH, index: i });
     }
 
-    const totalRows = Math.ceil(artifactSlots.artifacts.length / cols);
-    afterCardsY += totalRows * (artH + 2) + 2;
+    afterCardsY += artifactSlots.artifacts.length * (artH + 2) + 2;
   }
 
   // --- Army grid (bottom 2 rows) ---

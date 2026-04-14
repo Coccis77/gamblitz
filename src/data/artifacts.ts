@@ -35,6 +35,30 @@ export const ALL_ARTIFACTS: ArtifactDef[] = [
     isStarter: true,
   },
   {
+    id: 'kings_crown',
+    name: "King's Crown",
+    description: '+1 max king HP',
+    rarity: 'common',
+    effect: { kind: 'king_max_hp', amount: 1 },
+    isStarter: true,
+  },
+  {
+    id: 'scouts_map',
+    name: "Scout's Map",
+    description: '+2 gold per level completed',
+    rarity: 'common',
+    effect: { kind: 'gold_per_level', amount: 2 },
+    isStarter: true,
+  },
+  {
+    id: 'knights_oath',
+    name: "Knight's Oath",
+    description: 'Knights gain extended range jumps',
+    rarity: 'common',
+    effect: { kind: 'knight_extended_range' },
+    isStarter: true,
+  },
+  {
     id: 'merchants_eye',
     name: "Merchant's Eye",
     description: '+2 gold per level completed',
@@ -145,31 +169,46 @@ export const ARTIFACT_UPGRADES: ArtifactUpgrade[] = [
   {
     baseArtifactId: 'gold_tooth',
     upgraded: { id: 'gold_tooth_v2', name: 'Golden Fang', description: '+3 gold per capture', rarity: 'uncommon', effect: { kind: 'gold_per_capture', amount: 3 } },
-    cost: 8,
+    cost: 12,
   },
   {
     baseArtifactId: 'war_chest',
     upgraded: { id: 'war_chest_v2', name: 'Royal Treasury', description: '+6 gold per level', rarity: 'uncommon', effect: { kind: 'gold_per_level', amount: 6 } },
-    cost: 8,
+    cost: 12,
   },
   {
     baseArtifactId: 'iron_boots',
     upgraded: { id: 'iron_boots_v2', name: 'Winged Boots', description: 'Pawns move 2 forward every turn + capture backward', rarity: 'rare', effect: { kind: 'pawn_double_step_always' } },
-    cost: 12,
+    cost: 18,
   },
   {
     baseArtifactId: 'swift_command',
     upgraded: { id: 'swift_command_v2', name: 'Lightning Reflexes', description: '+2 moves per turn', rarity: 'rare', effect: { kind: 'extra_move', amount: 2 } },
-    cost: 12,
+    cost: 20,
   },
   {
     baseArtifactId: 'lucky_coin',
     upgraded: { id: 'lucky_coin_v2', name: 'Lucky Charm', description: '50% chance to heal on capture', rarity: 'rare', effect: { kind: 'capture_heals', chance: 0.5 } },
-    cost: 8,
+    cost: 14,
   },
   {
     baseArtifactId: 'retreat_pawn',
     upgraded: { id: 'retreat_pawn_v2', name: 'Full Retreat', description: 'Pawns capture in all diagonal directions', rarity: 'rare', effect: { kind: 'pawn_capture_backward' } },
-    cost: 10,
+    cost: 15,
+  },
+  {
+    baseArtifactId: 'kings_crown',
+    upgraded: { id: 'kings_crown_v2', name: "Emperor's Crown", description: '+2 max king HP', rarity: 'rare', effect: { kind: 'king_max_hp', amount: 2 } },
+    cost: 18,
+  },
+  {
+    baseArtifactId: 'scouts_map',
+    upgraded: { id: 'scouts_map_v2', name: 'War Atlas', description: '+5 gold per level completed', rarity: 'rare', effect: { kind: 'gold_per_level', amount: 5 } },
+    cost: 16,
+  },
+  {
+    baseArtifactId: 'knights_oath',
+    upgraded: { id: 'knights_oath_v2', name: "Cavalry Commander", description: 'Knights gain extended range + all pieces step 1 any direction', rarity: 'rare', effect: { kind: 'knight_extended_range' } },
+    cost: 18,
   },
 ];

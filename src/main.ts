@@ -13,7 +13,7 @@ import { addArtifact, canAddArtifact, removeArtifact, getArtifactEffectValue, Ar
 import { ModifierDef, MAX_MODIFIER_SLOTS } from './core/modifier.js';
 import { positionEquals } from './core/board.js';
 import { Piece, createPiece, PieceType } from './core/piece.js';
-import { Move } from './core/movement.js';
+import { Move, getLegalMoves } from './core/movement.js';
 import {
   GameState, usePlayerMove, isPlayerTurnOver,
   startEnemyTurn, startPlayerTurn,
@@ -23,7 +23,7 @@ import {
   executeMove, computeEnPassant,
 } from './input/click-handler.js';
 import { computeAllIntents, recalculateIntents } from './ai/intent.js';
-import { handleKingHit } from './systems/king-hp.js';
+import { handleKingHit, damageKing, isKingDefeated } from './systems/king-hp.js';
 import { RunState, createRunState, advanceRun, hasMutation } from './systems/run.js';
 import { GameEvent, EventEffect, rollEvent } from './systems/events.js';
 import { drawEventScreen, getEventOptionButtons } from './rendering/event-renderer.js';
@@ -545,15 +545,13 @@ function executeEnemyTurn(): void {
         // Non-boss: pawns were removed, count toward objectives
         level.progress.enemyPawnsPromotedOff += promoted.length;
       }
+      // Each promoted pawn deals 1 damage to the player king (no teleport)
       for (const _ of promoted) {
-        const playerKing = state.pieces.find(p => p.owner === 'player' && p.type === 'king');
-        if (playerKing) {
-          const hitResult = handleKingHit(playerKing, level.playerKingHP, state.pieces, rng);
-          if (hitResult.outcome === 'defeated' || hitResult.outcome === 'no_safe_square') { level.gameOver = true; render(); return; }
-          if (hitResult.outcome === 'choose_teleport') {
-            teleportChoices = hitResult.squares;
-            teleportKingId = playerKing.id;
-          }
+        damageKing(level.playerKingHP, 1);
+        if (isKingDefeated(level.playerKingHP)) {
+          level.gameOver = true;
+          render();
+          return;
         }
       }
 
@@ -576,11 +574,12 @@ function executeEnemyTurn(): void {
     const intent = intents[i]!;
     const piece = state.pieces.find(p => p.id === intent.pieceId);
     if (piece) {
-      // Skip if target square is now occupied by a friendly piece
-      const occupant = state.pieces.find(
-        p => p.id !== piece.id && p.position.row === intent.move.to.row && p.position.col === intent.move.to.col,
+      // Re-validate: check if the intended move is still legal with current board state
+      const currentLegalMoves = getLegalMoves(piece, state.pieces);
+      const stillValid = currentLegalMoves.some(
+        m => m.to.row === intent.move.to.row && m.to.col === intent.move.to.col,
       );
-      if (occupant && occupant.owner === piece.owner) {
+      if (!stillValid) {
         i++;
         executeNext();
         return;
